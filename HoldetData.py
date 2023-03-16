@@ -6,7 +6,8 @@ import pandas as pd
 class HoldetData():
     """Data import class from Holdet.dk."""
 
-    def __init__(self, game_id: int):
+    # For now defaults to select game "Super Manager" for edition "Spring 2023".
+    def __init__(self, game_id: int = 650):
         self.game_id = game_id
         self.game_data = self.get_game_data(self.game_id)
         self.tournament_data = self.get_tournament_data(self.game_data['tournament']['id'])
