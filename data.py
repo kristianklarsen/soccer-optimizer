@@ -2,6 +2,9 @@ import requests
 import json
 import pandas as pd
 
+# Look at player team performance stats data at https://github.com/C-Roensholt/ScrapeDanishSuperligaData
+#
+
 
 class HoldetData:
     """Data import class from Holdet.dk."""
