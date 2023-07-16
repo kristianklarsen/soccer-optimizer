@@ -1,6 +1,7 @@
 import requests
 import json
 import pandas as pd
+import http.client
 
 # Look at player team performance stats data at https://github.com/C-Roensholt/ScrapeDanishSuperligaData
 #
@@ -68,3 +69,22 @@ class HoldetData:
         )
 
         return player_data
+
+
+class OddsData:
+    """Data import class for odds"""
+
+    def __init__(self, api_key: str):
+            self.api_key = api_key
+
+    def bets(self):
+        conn = http.client.HTTPSConnection("v3.football.api-sports.io")
+        headers = {
+            'x-rapidapi-host': "v3.football.api-sports.io",
+            'x-rapidapi-key': self.api_key
+        }
+
+        conn.request("GET", "/odds/bets", headers=headers)
+
+        res = conn.getresponse()
+        data = res.read()
