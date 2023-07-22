@@ -1,8 +1,6 @@
 import requests
 import json
 import pandas as pd
-import http.client
-from typing import List
 
 # Look at player team performance stats data at https://github.com/C-Roensholt/ScrapeDanishSuperligaData
 #
@@ -77,56 +75,77 @@ class OddsData:
 
     def __init__(self, api_key: str, league_id: int = 310):
             self.api_key = api_key
-            self.request_headers = {
+            self.base_url = "https://v3.football.api-sports.io"
+            self.headers = {
             'x-rapidapi-host': "v3.football.api-sports.io",
             'x-rapidapi-key': self.api_key
             }
-            self.conn = http.client.HTTPSConnection("v3.football.api-sports.io")
             self.league_id = league_id
 
-    def get_leagues(self) -> List:
+    def get_leagues(self):
         """Get the list of available leagues and cups."""
 
-        self.conn.request("GET", "/leagues", headers=self.request_headers)
+        url = f"{self.base_url}/leagues"
+        response = requests.get(url, headers=self.headers)
 
-        res = self.conn.getresponse()
-        data = res.read()
-        results = json.loads(data)["response"]
-
-        return results
+        if response.status_code == 200:
+            return response.json()["response"]
+        else:
+            print("Failed to retrieve data. Status code:", response.status_code)
+            return None
 
     def get_fixtures(self):
         """Get data for multiple fixtures at once."""
 
-        self.conn.request("GET", "/fixtures", headers=self.request_headers)
+        url = f"{self.base_url}/fixtures"
+        response = requests.get(url, headers=self.headers)
 
-        res = self.conn.getresponse()
-        data = res.read()
-        results = json.loads(data)["response"]
+        if response.status_code == 200:
+            return response.json()["response"]
+        else:
+            print("Failed to retrieve data. Status code:", response.status_code)
+            return None
 
-        return results
-
-    def get_bets(self) -> List:
+    def get_bets(self):
         """Get all available bets for pre-match odds."""
 
-        self.conn.request("GET", "/odds/bets", headers=self.request_headers)
+        url = f"{self.base_url}/odds/bets"
+        response = requests.get(url, headers=self.headers)
 
-        res = self.conn.getresponse()
-        data = res.read()
-        results = json.loads(data)["response"]
-
-        return results
+        if response.status_code == 200:
+            return response.json()["response"]
+        else:
+            print("Failed to retrieve data. Status code:", response.status_code)
+            return None
 
     def get_odds_fixtures_mapping(self):
         """Get the list of available fixtures id for the endpoint odds."""
 
-        self.conn.request("GET", "/odds/mapping", headers=self.request_headers)
+        url = f"{self.base_url}/odds/mapping"
+        response = requests.get(url, headers=self.headers)
 
-        res = self.conn.getresponse()
-        data = res.read()
-        results = json.loads(data)["response"]
+        if response.status_code == 200:
+            return response.json()["response"]
+        else:
+            print("Failed to retrieve data. Status code:", response.status_code)
+            return None
 
-        return results
+    def get_odds(self, season, bet, bookmaker, fixture, league):
+        """Get odds from fixtures, leagues or date."""
 
-    def get_odds(self):
+        url = f"{self.base_url}/odds"
+        params = {
+            'season': season,
+            'bet': bet,
+            'bookmaker': bookmaker,
+            'fixture': fixture,
+            'league': league
+        }
 
+        response = requests.get(url, headers=self.headers, params=params)
+
+        if response.status_code == 200:
+            return response.json()["response"]
+        else:
+            print("Failed to retrieve data. Status code:", response.status_code)
+            return None
