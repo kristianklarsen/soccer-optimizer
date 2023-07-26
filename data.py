@@ -94,11 +94,14 @@ class OddsData:
             print("Failed to retrieve data. Status code:", response.status_code)
             return None
 
-    def get_fixtures(self):
+    def get_fixtures(self, live="all"):
         """Get data for multiple fixtures at once."""
 
         url = f"{self.base_url}/fixtures"
-        response = requests.get(url, headers=self.headers)
+        params = {
+            'live': live
+        }
+        response = requests.get(url, headers=self.headers, params=params)
 
         if response.status_code == 200:
             return response.json()["response"]
