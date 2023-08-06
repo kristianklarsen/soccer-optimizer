@@ -5,12 +5,37 @@ import pandas as pd
 # Look at player team performance stats data at https://github.com/C-Roensholt/ScrapeDanishSuperligaData
 #
 
+TEAM_NAME_MAP = {
+    "Vejle Boldklub": "Vejle",
+    "FC Midtjylland": "FC Midtjylland",
+    "FC Nordsjælland": "FC Nordsjaelland",
+    "FC København": "FC Copenhagen",
+    "Randers FC": "Randers FC",
+    "OB": "Odense",
+    "AGF": "Aarhus",
+    "Brøndby IF": "Brondby",
+    "Lyngby BK": "Lyngby",
+    "Viborg FF": "Viborg",
+    "Hvidovre IF": "Hvidovre",
+    "Silkeborg IF": "Silkeborg"
+}
+"""Team name map from Holdet (key) to Odds data (value)."""
+
+BET_ID_EVENT_TYPE_MAP = {
+    300: 1,     # player team won   (using "match winner" bet. Select "Home" or "Away" odd based on player.)
+    286: 92,    # goalkeeper goal   (using "anytime goal scorer" bet. Select event type based on player position.)
+    281: 92,    # defense goal      (using "anytime goal scorer" bet. Select event type based on player position.)
+    291: 92,    # midfielder goal   (using "anytime goal scorer" bet. Select event type based on player position.)
+    305: 92,    # striker goal      (using "anytime goal scorer" bet. Select event type based on player position.)
+}
+"""Map from Holdet event type ID (key) to corresponding bet ID (value)."""
+
 
 class HoldetData:
     """Data import class from Holdet.dk."""
 
-    # For now defaults to select game "Super Manager" for edition "Spring 2023".
-    def __init__(self, game_id: int = 650):
+    # For now defaults to select game "Super Manager" for edition "Fall 2023" with ID 665.
+    def __init__(self, game_id: int = 665):
         self.game_id = game_id
         self.game_data = self.get_game_data()
         self.tournament_data = self.get_tournament_data()
@@ -71,9 +96,9 @@ class HoldetData:
 
 
 class OddsData:
-    """Data import class for odds"""
+    """Data import class for odds. Default league is danish Superliga. Season is the current season."""
 
-    def __init__(self, api_key: str, league_id: int = 310):
+    def __init__(self, api_key: str, league_id=119, season=2023):
             self.api_key = api_key
             self.base_url = "https://v3.football.api-sports.io"
             self.headers = {
@@ -81,6 +106,7 @@ class OddsData:
             'x-rapidapi-key': self.api_key
             }
             self.league_id = league_id
+            self.season = season
 
     def get_leagues(self):
         """Get the list of available leagues and cups."""
@@ -94,14 +120,23 @@ class OddsData:
             print("Failed to retrieve data. Status code:", response.status_code)
             return None
 
-    def get_fixtures(self, live="all"):
-        """Get data for multiple fixtures at once."""
+    def get_teams(self):
+        """Get teams data."""
+
+        url = f"{self.base_url}/teams"
+        response = requests.get(url, headers=self.headers, params={"league": self.league_id, "season": self.season})
+
+        if response.status_code == 200:
+            return response.json()["response"]
+        else:
+            print("Failed to retrieve data. Status code:", response.status_code)
+            return None
+
+    def get_fixtures(self):
+        """Get fixtures data for the season."""
 
         url = f"{self.base_url}/fixtures"
-        params = {
-            'live': live
-        }
-        response = requests.get(url, headers=self.headers, params=params)
+        response = requests.get(url, headers=self.headers, params={"league": self.league_id, "season": self.season})
 
         if response.status_code == 200:
             return response.json()["response"]
@@ -133,17 +168,10 @@ class OddsData:
             print("Failed to retrieve data. Status code:", response.status_code)
             return None
 
-    def get_odds(self, season, bet, bookmaker, fixture, league):
+    def get_odds(self, **params):
         """Get odds from fixtures, leagues or date."""
 
         url = f"{self.base_url}/odds"
-        params = {
-            'season': season,
-            'bet': bet,
-            'bookmaker': bookmaker,
-            'fixture': fixture,
-            'league': league
-        }
 
         response = requests.get(url, headers=self.headers, params=params)
 
