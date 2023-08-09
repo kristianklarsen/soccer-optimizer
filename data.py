@@ -21,14 +21,29 @@ TEAM_NAME_MAP = {
 }
 """Team name map from Holdet (key) to Odds data (value)."""
 
-BET_ID_EVENT_TYPE_MAP = {
-    300: 1,     # player team won   (using "match winner" bet. Select "Home" or "Away" odd based on player.)
-    286: 92,    # goalkeeper goal   (using "anytime goal scorer" bet. Select event type based on player position.)
-    281: 92,    # defense goal      (using "anytime goal scorer" bet. Select event type based on player position.)
-    291: 92,    # midfielder goal   (using "anytime goal scorer" bet. Select event type based on player position.)
-    305: 92,    # striker goal      (using "anytime goal scorer" bet. Select event type based on player position.)
+EVENT_MAP = {
+    "match_winner": {       # player team won   (using "match winner" bet. Select "Home" or "Away" odd based on player.)
+        "holdet_event_id": 300,
+        "bet_id": 1
+    },
+    "anytime_goal_goalkeeper": {       # goalkeeper goal   (using "anytime goal scorer" bet. Select event type based on player position.)
+        "holdet_event_id": 286,
+        "bet_id": 92
+    },
+    "anytime_goal_defense": {       # defense goal      (using "anytime goal scorer" bet. Select event type based on player position.)
+        "holdet_event_id": 281,
+        "bet_id": 92
+    },
+    "anytime_goal_midfielder": {       # midfielder goal   (using "anytime goal scorer" bet. Select event type based on player position.)
+        "holdet_event_id": 291,
+        "bet_id": 92
+    },
+    "anytime_goal_striker": {       # striker goal      (using "anytime goal scorer" bet. Select event type based on player position.)
+        "holdet_event_id": 305,
+        "bet_id": 92
+    },
 }
-"""Map from Holdet event type ID (key) to corresponding bet ID (value)."""
+"""Map from Holdet event type ID (key) to corresponding bet ID (value) for each type of event."""
 
 
 class HoldetData:
@@ -60,7 +75,7 @@ class HoldetData:
         ruleset_dict = json.loads(ruleset_response.text)
         return ruleset_dict
 
-    def get_player_data(self) -> pd.DataFrame:
+    def get_player_data(self) -> dict:
         tournament_data = self.tournament_data
         teams = {}
         for team in tournament_data['teams']:
@@ -92,7 +107,7 @@ class HoldetData:
             pd.DataFrame.from_dict(positions, orient='index'), on='position_id', how='left'
         )
 
-        return player_data
+        return player_data.to_dict()
 
 
 class OddsData:
@@ -168,7 +183,7 @@ class OddsData:
             print("Failed to retrieve data. Status code:", response.status_code)
             return None
 
-    def get_odds(self, **params):
+    def _get_odds(self, **params):
         """Get odds from fixtures, leagues or date."""
 
         url = f"{self.base_url}/odds"
@@ -180,3 +195,11 @@ class OddsData:
         else:
             print("Failed to retrieve data. Status code:", response.status_code)
             return None
+
+    def get_odds_data(self, event_name):
+        """get odds for x next rounds."""
+
+        rounds = self._get_round_ids()
+
+        odds = self._get_odds(league=self.league_id, season=self.season, bet=EVENT_MAP.get(event_name)["bet_id"])
+
