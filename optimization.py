@@ -1,12 +1,12 @@
 from mip import *
-from data import HoldetData, OddsData
+from data import OptimizationInput
 
 class Optimization:
     """Optimization class."""
 
-    def __init__(self, holdet_data: HoldetData, odds_data: OddsData):
+    def __init__(self, opt_input: OptimizationInput):
         self.model = Model(sense=MAXIMIZE, solver_name=CBC)
-        self.players = holdet_data.player_data
+        self.players = opt_input.players
 
     def build_model(self):
 

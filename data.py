@@ -113,15 +113,16 @@ class HoldetData:
 class OddsData:
     """Data import class for odds. Default league is danish Superliga. Season is the current season."""
 
-    def __init__(self, api_key: str, league_id=119, season=2023):
+    def __init__(self, api_key: str, league_id=119, season=2023, event_map: dict = EVENT_MAP):
             self.api_key = api_key
+            self.league_id = league_id
+            self.season = season
+            self.event_map = event_map
             self.base_url = "https://v3.football.api-sports.io"
             self.headers = {
             'x-rapidapi-host': "v3.football.api-sports.io",
             'x-rapidapi-key': self.api_key
             }
-            self.league_id = league_id
-            self.season = season
 
     def get_leagues(self):
         """Get the list of available leagues and cups."""
@@ -196,10 +197,20 @@ class OddsData:
             print("Failed to retrieve data. Status code:", response.status_code)
             return None
 
-    def get_odds_data(self, event_name):
-        """get odds for x next rounds."""
+    def get_event_odds(self, event_name: str, rounds_ahead: int = 1):
+        """get odds for x next rounds for a specific event."""
 
         rounds = self._get_round_ids()
 
-        odds = self._get_odds(league=self.league_id, season=self.season, bet=EVENT_MAP.get(event_name)["bet_id"])
+        odds = self._get_odds(league=self.league_id, season=self.season, bet=self.event_map.get(event_name)["bet_id"])
+
+
+class OptimizationInput:
+    """Data class combining HoldetData and OddsData to get relevant input for optimization."""
+
+    def __init__(self, holdet_data: HoldetData, odds_data: OddsData):
+        self.holdet_data = holdet_data
+        self.odds_data = odds_data
+        self.players = holdet_data.player_data
+
 
