@@ -21,29 +21,43 @@ TEAM_NAME_MAP = {
 }
 """Team name map from Holdet (key) to Odds data (value)."""
 
-EVENT_MAP = {
+EVENTS = {
     "match_winner": {       # player team won   (using "match winner" bet. Select "Home" or "Away" odd based on player.)
         "holdet_event_id": 300,
-        "bet_id": 1
+        "bet_id": 1,
+        "key_item": "team_name"
     },
     "anytime_goal_goalkeeper": {       # goalkeeper goal   (using "anytime goal scorer" bet. Select event type based on player position.)
         "holdet_event_id": 286,
-        "bet_id": 92
+        "bet_id": 92,
+        "key_item": "player_id",
+        "static_filter_item": "position_name",
+        "static_filter_value": "goal_keeper"
     },
     "anytime_goal_defense": {       # defense goal      (using "anytime goal scorer" bet. Select event type based on player position.)
         "holdet_event_id": 281,
-        "bet_id": 92
+        "bet_id": 92,
+        "key_item": "player_id",
+        "static_filter_item": "position_name",
+        "static_filter_value": "defender"
     },
     "anytime_goal_midfielder": {       # midfielder goal   (using "anytime goal scorer" bet. Select event type based on player position.)
         "holdet_event_id": 291,
-        "bet_id": 92
+        "bet_id": 92,
+        "key_item": "player_id",
+        "static_filter_item": "position_name",
+        "static_filter_value": "midfielder"
     },
     "anytime_goal_striker": {       # striker goal      (using "anytime goal scorer" bet. Select event type based on player position.)
         "holdet_event_id": 305,
-        "bet_id": 92
+        "bet_id": 92,
+        "key_item": "player_id",
+        "static_filter_item": "position_name",
+        "static_filter_value": "striker"
     },
 }
-"""Map from Holdet event type ID (key) to corresponding bet ID (value) for each type of event."""
+"""List of Holdet events for which points can be scored in the Holdet game. Contains mapping ids for corresponding bet,
+as well as key_item, and potentially static filters, used to link the bet/odds with relevant players."""
 
 
 class HoldetData:
@@ -113,11 +127,11 @@ class HoldetData:
 class OddsData:
     """Data import class for odds. Default league is danish Superliga. Season is the current season."""
 
-    def __init__(self, api_key: str, league_id=119, season=2023, event_map: dict = EVENT_MAP):
+    def __init__(self, api_key: str, league_id=119, season=2023, events: dict = EVENTS):
             self.api_key = api_key
             self.league_id = league_id
             self.season = season
-            self.event_map = event_map
+            self.events = events
             self.base_url = "https://v3.football.api-sports.io"
             self.headers = {
             'x-rapidapi-host': "v3.football.api-sports.io",
@@ -184,7 +198,7 @@ class OddsData:
             print("Failed to retrieve data. Status code:", response.status_code)
             return None
 
-    def _get_odds(self, **params):
+    def _get_odds_request(self, **params):
         """Get odds from fixtures, leagues or date."""
 
         url = f"{self.base_url}/odds"
@@ -197,12 +211,17 @@ class OddsData:
             print("Failed to retrieve data. Status code:", response.status_code)
             return None
 
-    def get_event_odds(self, event_name: str, rounds_ahead: int = 1):
-        """get odds for x next rounds for a specific event."""
+    def get_odds(self, rounds_ahead: int = 1):
+        """get odds for x next rounds for all events."""
 
-        rounds = self._get_round_ids()
+        ##rounds = self._get_round_ids()
+        odds = {}
+        for event_key, event in self.events.items():
+            odds[event_key] = self._get_odds_request(
+                league=self.league_id, season=self.season, bet=event["bet_id"]
+            )
 
-        odds = self._get_odds(league=self.league_id, season=self.season, bet=self.event_map.get(event_name)["bet_id"])
+        return odds
 
 
 class OptimizationInput:
@@ -212,5 +231,11 @@ class OptimizationInput:
         self.holdet_data = holdet_data
         self.odds_data = odds_data
         self.players = holdet_data.player_data
+
+    def _get_expected_scores(self):
+        """Get list of players including expected score."""
+
+        for event_key, event in self.odds_data.events.items():
+            players_enriched = self.players.
 
 
