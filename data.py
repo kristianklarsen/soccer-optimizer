@@ -1,6 +1,7 @@
 import requests
 import json
 import pandas as pd
+from typing import List
 
 # Look at player team performance stats data at https://github.com/C-Roensholt/ScrapeDanishSuperligaData
 #
@@ -20,6 +21,22 @@ TEAM_NAME_MAP = {
     "Silkeborg IF": "Silkeborg"
 }
 """Team name map from Holdet (key) to Odds data (value)."""
+
+TEAM_ID_MAP = {
+    3977: 395,
+    3952: 397,
+    3953: 398,
+    3951: 400,
+    3956: 401,
+    3955: 405,
+    3948: 406,
+    3949: 407,
+    3954: 625,
+    3957: 2070,
+    4245: 2072,
+    4107: 2073
+}
+"""Team ID map from Holdet (key) to Odds data (value)."""
 
 EVENTS = {
     "match_winner": {       # player team won   (using "match winner" bet. Select "Home" or "Away" odd based on player.)
@@ -89,7 +106,7 @@ class HoldetData:
         ruleset_dict = json.loads(ruleset_response.text)
         return ruleset_dict
 
-    def get_player_data(self) -> dict:
+    def get_player_data(self) -> List[dict]:
         tournament_data = self.tournament_data
         teams = {}
         for team in tournament_data['teams']:
@@ -121,22 +138,24 @@ class HoldetData:
             pd.DataFrame.from_dict(positions, orient='index'), on='position_id', how='left'
         )
 
-        return player_data.to_dict()
+        return player_data.to_dict('records')
 
 
 class OddsData:
     """Data import class for odds. Default league is danish Superliga. Season is the current season."""
 
-    def __init__(self, api_key: str, league_id=119, season=2023, events: dict = EVENTS):
+    def __init__(self, api_key: str, league_id=119, season=2023, events: dict = EVENTS, bookmaker: str = "Bet365"):
             self.api_key = api_key
             self.league_id = league_id
             self.season = season
             self.events = events
+            self.bookmaker = bookmaker
             self.base_url = "https://v3.football.api-sports.io"
             self.headers = {
             'x-rapidapi-host': "v3.football.api-sports.io",
             'x-rapidapi-key': self.api_key
             }
+            self.fixtures = self._get_fixtures()
 
     def get_leagues(self):
         """Get the list of available leagues and cups."""
@@ -162,7 +181,7 @@ class OddsData:
             print("Failed to retrieve data. Status code:", response.status_code)
             return None
 
-    def get_fixtures(self):
+    def _get_fixtures(self):
         """Get fixtures data for the season."""
 
         url = f"{self.base_url}/fixtures"
@@ -221,6 +240,22 @@ class OddsData:
                 league=self.league_id, season=self.season, bet=event["bet_id"]
             )
 
+            # Add additional fields based on event/bet type
+            if event_key == "match_winner":
+                for fixture in odds[event_key]:
+                    # add home/away team IDs
+                    fixture_data = next(filter(lambda x: x["fixture"]['id'] == fixture["fixture"]["id"], self.fixtures))
+                    fixture["home_team_id"] = fixture_data["teams"]["home"]["id"]
+                    fixture["away_team_id"] = fixture_data["teams"]["away"]["id"]
+                    # make home/away odds easily available
+                    odd_data = next(filter(lambda x: x["name"] == self.bookmaker, fixture["bookmakers"]))
+                    fixture["home_team_odd"] = next(
+                        filter(lambda x: x["value"] == "Home", odd_data["bets"][0]["values"])
+                    )["odd"]
+                    fixture["away_team_odd"] = next(
+                        filter(lambda x: x["value"] == "Away", odd_data["bets"][0]["values"])
+                    )["odd"]
+
         return odds
 
 
@@ -232,10 +267,18 @@ class OptimizationInput:
         self.odds_data = odds_data
         self.players = holdet_data.player_data
 
-    def _get_expected_scores(self):
+    def _get_expected_player_scores(self):
         """Get list of players including expected score."""
 
+        odds = self.odds_data.get_odds()
+        player_scores = self.players
         for event_key, event in self.odds_data.events.items():
-            players_enriched = self.players.
-
-
+            if event_key == "match_winner":
+                for player in player_scores:
+                    player["expected_score"] = sum(
+                        [1/odd["home_team_odd"] if odd["home_team_id"] == player["team_id"] else
+                         1/odd["away_team_odd"] if odd["away_team_id"] == player["team_id"] else 0
+                         for odd in odds["match_winner"]
+                         ]
+                    )
+        return player_scores
