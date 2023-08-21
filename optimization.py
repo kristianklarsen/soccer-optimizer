@@ -1,21 +1,22 @@
 from mip import *
 from data import OptimizationInput
 
+
 class Optimization:
     """Optimization class."""
 
-    def __init__(self, opt_input: OptimizationInput):
+    def __init__(self, optimization_input: OptimizationInput):
         self.model = Model(sense=MAXIMIZE, solver_name=CBC)
-        self.players = opt_input.players
+        self.input = optimization_input
 
     def build_model(self):
 
-        # Add selection variable for each player
-        player_select_vars = []
-        for player in self.players:
-            player_select_vars.append(
+        # Add selection variable for each player, and objective coefficient expected score
+        x = []
+        for player in self.input.players:
+            x.append(
                 self.model.add_var(
-                    name=player["person_shortname"],
+                    name=str(player["player_id"]),
                     var_type=BINARY,
                     obj=0
                 )
@@ -24,12 +25,13 @@ class Optimization:
         # Add constraints
         self.model.add_constr(
             name="Exactly 11 players",
-            lin_expr=sum(player_select_vars)==11
+            lin_expr=sum(x)==11
         )
 
         # Add objective
-        for player in self.players:
-
+        self.model.objective = xsum(
+            x[i] * self.input.players[i]["expected_score"] for i in range(len(x))
+        )
 
     def run(self):
         # optimize and return results
