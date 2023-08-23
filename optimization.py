@@ -12,15 +12,13 @@ class Optimization:
     def build_model(self):
 
         # Add selection variable for each player, and objective coefficient expected score
-        x = []
-        for player in self.input.players:
-            x.append(
-                self.model.add_var(
-                    name=str(player["player_id"]),
-                    var_type=BINARY,
-                    obj=0
-                )
-            )
+        x = [
+            self.model.add_var(
+                name=str(player["player_id"]),
+                var_type=BINARY,
+                obj=1
+            ) for player in self.input.players
+        ]
 
         # Add constraints
         self.model.add_constr(
@@ -30,7 +28,7 @@ class Optimization:
 
         # Add objective
         self.model.objective = xsum(
-            x[i] * self.input.players[i]["expected_score"] for i in range(len(x))
+            x[i] * self.input.players[i]["expected_score"] for i in range(len(x)-1)
         )
 
     def run(self):
