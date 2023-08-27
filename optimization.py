@@ -1,3 +1,4 @@
+import mip
 from mip import *
 from data import OptimizationInput
 
@@ -6,7 +7,7 @@ class Optimization:
     """Optimization class."""
 
     def __init__(self, optimization_input: OptimizationInput):
-        self.model = Model(sense=MAXIMIZE, solver_name=CBC)
+        self.model = Model(solver_name=CBC)
         self.input = optimization_input
 
     def build_model(self):
@@ -15,8 +16,7 @@ class Optimization:
         x = [
             self.model.add_var(
                 name=str(player["player_id"]),
-                var_type=BINARY,
-                obj=1
+                var_type=BINARY
             ) for player in self.input.players
         ]
 
@@ -27,10 +27,20 @@ class Optimization:
         )
 
         # Add objective
-        self.model.objective = xsum(
-            x[i] * self.input.players[i]["expected_score"] for i in range(len(x)-1)
+        self.model.objective = mip.maximize(
+            mip.xsum(
+                x[i] * player["expected_score"] for i, player in enumerate(self.input.players)
+            )
         )
 
     def run(self):
         # optimize and return results
         self.model.optimize(max_seconds=30)
+
+    def get_result(self) -> List[str]:
+        """Returns optimum, i.e. selected players that optimizes expected score."""
+        return [
+            next((player["person_fullname"] for player in self.input.players if player['player_id'] == int(var.name)), None)
+            for var in self.model.vars._VarList__vars if var.x == 1
+        ]
+

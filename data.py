@@ -1,7 +1,7 @@
 import requests
 import json
 import pandas as pd
-from typing import List
+from typing import List, Dict
 
 # Look at player team performance stats data at https://github.com/C-Roensholt/ScrapeDanishSuperligaData
 #
@@ -39,42 +39,30 @@ TEAM_ID_MAP = {
 """Team ID map from Holdet (key) to Odds data (value)."""
 
 EVENTS = {
-    "match_winner": {       # player team won   (using "match winner" bet. Select "Home" or "Away" odd based on player.)
+    "match_winner": {    # player team won   (using "match winner" bet. Select "Home" or "Away" odd based on player.)
         "holdet_event_id": 300,
         "bet_id": 1,
-        "key_item": "team_name"
     },
-    "anytime_goal_goalkeeper": {       # goalkeeper goal   (using "anytime goal scorer" bet. Select event type based on player position.)
+    "anytime_goal_goalkeeper": {
         "holdet_event_id": 286,
         "bet_id": 92,
-        "key_item": "player_id",
-        "static_filter_item": "position_name",
-        "static_filter_value": "goal_keeper"
     },
-    "anytime_goal_defense": {       # defense goal      (using "anytime goal scorer" bet. Select event type based on player position.)
+    "anytime_goal_defense": {
         "holdet_event_id": 281,
         "bet_id": 92,
-        "key_item": "player_id",
-        "static_filter_item": "position_name",
-        "static_filter_value": "defender"
     },
-    "anytime_goal_midfielder": {       # midfielder goal   (using "anytime goal scorer" bet. Select event type based on player position.)
+    "anytime_goal_midfielder": {
         "holdet_event_id": 291,
         "bet_id": 92,
-        "key_item": "player_id",
-        "static_filter_item": "position_name",
-        "static_filter_value": "midfielder"
     },
-    "anytime_goal_striker": {       # striker goal      (using "anytime goal scorer" bet. Select event type based on player position.)
+    "anytime_goal_striker": {
         "holdet_event_id": 305,
         "bet_id": 92,
-        "key_item": "player_id",
-        "static_filter_item": "position_name",
-        "static_filter_value": "striker"
     },
 }
-"""List of Holdet events for which points can be scored in the Holdet game. Contains mapping ids for corresponding bet,
-as well as key_item, and potentially static filters, used to link the bet/odds with relevant players."""
+"""List of Holdet events for which points can be scored in the Holdet game and for which a relevant bet exists. Contains
+mapping IDs for corresponding bet.
+"""
 
 
 class HoldetData:
@@ -230,6 +218,21 @@ class OddsData:
             print("Failed to retrieve data. Status code:", response.status_code)
             return None
 
+    def _curate_odds_data_match_winner(self, fixture: Dict):
+        """Curate the odds data for a fixture for the event type match_winner."""
+
+        fixture_data = next(filter(lambda x: x["fixture"]['id'] == fixture["fixture"]["id"], self.fixtures))
+        fixture["home_team_id"] = fixture_data["teams"]["home"]["id"]
+        fixture["away_team_id"] = fixture_data["teams"]["away"]["id"]
+        # make home/away odds easily available
+        odd_data = next(filter(lambda x: x["name"] == self.bookmaker, fixture["bookmakers"]))
+        fixture["home_team_odd"] = float(next(
+            filter(lambda x: x["value"] == "Home", odd_data["bets"][0]["values"])
+        )["odd"])
+        fixture["away_team_odd"] = float(next(
+            filter(lambda x: x["value"] == "Away", odd_data["bets"][0]["values"])
+        )["odd"])
+
     def get_odds(self, rounds_ahead: int = 1):
         """get odds for x next rounds for all events."""
 
@@ -240,21 +243,10 @@ class OddsData:
                 league=self.league_id, season=self.season, bet=event["bet_id"]
             )
 
-            # Add additional fields based on event/bet type
+            # Add additional relevant fields for each event type.
             if event_key == "match_winner":
                 for fixture in odds[event_key]:
-                    # add home/away team IDs
-                    fixture_data = next(filter(lambda x: x["fixture"]['id'] == fixture["fixture"]["id"], self.fixtures))
-                    fixture["home_team_id"] = fixture_data["teams"]["home"]["id"]
-                    fixture["away_team_id"] = fixture_data["teams"]["away"]["id"]
-                    # make home/away odds easily available
-                    odd_data = next(filter(lambda x: x["name"] == self.bookmaker, fixture["bookmakers"]))
-                    fixture["home_team_odd"] = float(next(
-                        filter(lambda x: x["value"] == "Home", odd_data["bets"][0]["values"])
-                    )["odd"])
-                    fixture["away_team_odd"] = float(next(
-                        filter(lambda x: x["value"] == "Away", odd_data["bets"][0]["values"])
-                    )["odd"])
+                    self._curate_odds_data_match_winner(fixture)
 
         return odds
 
@@ -265,26 +257,32 @@ class OptimizationInput:
     def __init__(self, holdet_data: HoldetData, odds_data: OddsData, team_id_map: dict = TEAM_ID_MAP):
         self.holdet_data = holdet_data
         self.odds_data = odds_data
+        self.odds = {}
         self.team_id_map = team_id_map
         self.players = self._get_expected_player_scores()
+
+    def _calc_expected_score_match_winner(self, player) -> float:
+        """Calculate and return the expected score for a player for the event type match_winner."""
+
+        return sum(
+            [1 / odd["home_team_odd"] if odd["home_team_id"] == self.team_id_map[player["team_id"]] else
+             1 / odd["away_team_odd"] if odd["away_team_id"] == self.team_id_map[player["team_id"]] else
+             0
+             for odd in self.odds["match_winner"]
+             ]
+        ) * next(
+            filter(lambda x: x["name"] == "SoccerPlayerTeamWon",
+                   self.holdet_data.ruleset_data["fantasyEventTypes"])
+        )["value"]
 
     def _get_expected_player_scores(self):
         """Get list of players including expected score."""
 
-        odds = self.odds_data.get_odds()
+        self.odds = self.odds_data.get_odds()
         player_scores = self.holdet_data.player_data
         for event_key, event in self.odds_data.events.items():
             if event_key == "match_winner":
                 for player in player_scores:
-                    player["expected_score"] = sum(
-                        [1/odd["home_team_odd"] if odd["home_team_id"] == self.team_id_map[player["team_id"]] else
-                         1/odd["away_team_odd"] if odd["away_team_id"] == self.team_id_map[player["team_id"]] else
-                         0
-                         for odd in odds["match_winner"]
-                         ]
-                    ) * next(
-                        filter(lambda x: x["name"] == "SoccerPlayerTeamWon",
-                               self.holdet_data.ruleset_data["fantasyEventTypes"])
-                    )["value"]
+                    player["expected_score"] = self._calc_expected_score_match_winner(player)
 
         return player_scores
