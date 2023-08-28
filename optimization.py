@@ -1,13 +1,13 @@
 import mip
-from mip import *
 from data import OptimizationInput
+from typing import List
 
 
 class Optimization:
     """Optimization class."""
 
     def __init__(self, optimization_input: OptimizationInput):
-        self.model = Model(solver_name=CBC)
+        self.model = mip.Model(solver_name=mip.CBC)
         self.input = optimization_input
 
     def build_model(self):
@@ -16,14 +16,56 @@ class Optimization:
         x = [
             self.model.add_var(
                 name=str(player["player_id"]),
-                var_type=BINARY
+                var_type=mip.BINARY
             ) for player in self.input.players
         ]
 
         # Add constraints
         self.model.add_constr(
             name="Exactly 11 players",
-            lin_expr=sum(x)==11
+            lin_expr=sum(x) == 11
+        )
+        self.model.add_constr(
+            name="Formations Goalkeeper",
+            lin_expr=mip.xsum(
+                x[i] if player["position_name"] == "Mål" else 0 for i, player in enumerate(self.input.players)
+            ) == 1
+        )
+        self.model.add_constr(
+            name="Formations Defenders",
+            lin_expr=3 <= mip.xsum(
+                x[i] if player["position_name"] == "Forsvar" else 0 for i, player in enumerate(self.input.players)
+            ) <= 5
+        )
+        self.model.add_constr(
+            name="Formations Defenders",
+            lin_expr=mip.xsum(
+                x[i] if player["position_name"] == "Forsvar" else 0 for i, player in enumerate(self.input.players)
+            ) >= 3
+        )
+        self.model.add_constr(
+            name="Formations Midfielders",
+            lin_expr=3 <= mip.xsum(
+                x[i] if player["position_name"] == "Midtbane" else 0 for i, player in enumerate(self.input.players)
+            ) <= 5
+        )
+        self.model.add_constr(
+            name="Formations Midfielders",
+            lin_expr=mip.xsum(
+                x[i] if player["position_name"] == "Midtbane" else 0 for i, player in enumerate(self.input.players)
+            ) >= 3
+        )
+        self.model.add_constr(
+            name="Formations Attackers",
+            lin_expr=mip.xsum(
+                x[i] if player["position_name"] == "Angreb" else 0 for i, player in enumerate(self.input.players)
+            ) <= 3
+        )
+        self.model.add_constr(
+            name="Formations Attackers",
+            lin_expr=1 <= mip.xsum(
+                x[i] if player["position_name"] == "Angreb" else 0 for i, player in enumerate(self.input.players)
+            ) >= 1
         )
 
         # Add objective
