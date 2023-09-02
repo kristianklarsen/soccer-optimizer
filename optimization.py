@@ -1,6 +1,7 @@
 import mip
+from deep_translator import GoogleTranslator
 from data import OptimizationInput
-from typing import List
+from typing import List, Dict
 
 
 class Optimization:
@@ -20,52 +21,50 @@ class Optimization:
             ) for player in self.input.players
         ]
 
-        # Add constraints
+        # Add formation constraints
+        goalkeepers = [
+            x[i] if player["position_name"] == "Mål" else 0 for i, player in enumerate(self.input.players)
+        ]
+        defenders = [
+            x[i] if player["position_name"] == "Forsvar" else 0 for i, player in enumerate(self.input.players)
+        ]
+        midfielders = [
+            x[i] if player["position_name"] == "Midtbane" else 0 for i, player in enumerate(self.input.players)
+        ]
+        attackers = [
+            x[i] if player["position_name"] == "Angreb" else 0 for i, player in enumerate(self.input.players)
+        ]
         self.model.add_constr(
             name="Exactly 11 players",
             lin_expr=sum(x) == 11
         )
         self.model.add_constr(
-            name="Formations Goalkeeper",
-            lin_expr=mip.xsum(
-                x[i] if player["position_name"] == "Mål" else 0 for i, player in enumerate(self.input.players)
-            ) == 1
+            name="Formation exactly 1 goalkeeper",
+            lin_expr=mip.xsum(goalkeepers) == 1
         )
         self.model.add_constr(
-            name="Formations Defenders",
-            lin_expr=3 <= mip.xsum(
-                x[i] if player["position_name"] == "Forsvar" else 0 for i, player in enumerate(self.input.players)
-            ) <= 5
+            name="Formation max 5 defenders",
+            lin_expr=mip.xsum(defenders) <= 5
         )
         self.model.add_constr(
-            name="Formations Defenders",
-            lin_expr=mip.xsum(
-                x[i] if player["position_name"] == "Forsvar" else 0 for i, player in enumerate(self.input.players)
-            ) >= 3
+            name="Formation min 3 defenders",
+            lin_expr=mip.xsum(defenders) >= 3
         )
         self.model.add_constr(
-            name="Formations Midfielders",
-            lin_expr=3 <= mip.xsum(
-                x[i] if player["position_name"] == "Midtbane" else 0 for i, player in enumerate(self.input.players)
-            ) <= 5
+            name="Formation max 5 midfielders",
+            lin_expr=mip.xsum(midfielders) <= 5
         )
         self.model.add_constr(
-            name="Formations Midfielders",
-            lin_expr=mip.xsum(
-                x[i] if player["position_name"] == "Midtbane" else 0 for i, player in enumerate(self.input.players)
-            ) >= 3
+            name="Formation min 3 midfielders",
+            lin_expr=mip.xsum(midfielders) >= 3
         )
         self.model.add_constr(
-            name="Formations Attackers",
-            lin_expr=mip.xsum(
-                x[i] if player["position_name"] == "Angreb" else 0 for i, player in enumerate(self.input.players)
-            ) <= 3
+            name="Formation max 3 attackers",
+            lin_expr=mip.xsum(attackers) <= 3
         )
         self.model.add_constr(
-            name="Formations Attackers",
-            lin_expr=1 <= mip.xsum(
-                x[i] if player["position_name"] == "Angreb" else 0 for i, player in enumerate(self.input.players)
-            ) >= 1
+            name="Formation min 1 attacker",
+            lin_expr=mip.xsum(attackers) >= 1
         )
 
         # Add objective
@@ -79,10 +78,23 @@ class Optimization:
         # optimize and return results
         self.model.optimize(max_seconds=30)
 
-    def get_result(self) -> List[str]:
+    def get_result(self) -> Dict:
         """Returns optimum, i.e. selected players that optimizes expected score."""
-        return [
-            next((player["person_fullname"] for player in self.input.players if player['player_id'] == int(var.name)), None)
-            for var in self.model.vars._VarList__vars if var.x == 1
-        ]
-
+        return {
+            "optimal_team": [
+                {
+                "person_fullname": next((player["person_fullname"] for player in self.input.players if player['player_id'] == int(var.name)), None),
+                "position_name": next(
+                    (GoogleTranslator(
+                        source="da",
+                        target="en"
+                    ).translate(player["position_name"])
+                    for player in self.input.players if player['player_id'] == int(var.name)
+                    ),
+                    None),
+                "team_name": next((player["team_name"] for player in self.input.players if player['player_id'] == int(var.name)), None),
+                }
+                for var in self.model.vars._VarList__vars if var.x == 1
+            ],
+            "expected_score": self.model.objective_value
+        }

@@ -257,7 +257,7 @@ class OptimizationInput:
     def __init__(self, holdet_data: HoldetData, odds_data: OddsData, team_id_map: dict = TEAM_ID_MAP):
         self.holdet_data = holdet_data
         self.odds_data = odds_data
-        self.odds = {}
+        self.odds = odds_data.get_odds()
         self.team_id_map = team_id_map
         self.players = self._get_expected_player_scores()
 
@@ -278,7 +278,6 @@ class OptimizationInput:
     def _get_expected_player_scores(self):
         """Get list of players including expected score."""
 
-        self.odds = self.odds_data.get_odds()
         player_scores = self.holdet_data.player_data
         for event_key, event in self.odds_data.events.items():
             if event_key == "match_winner":
