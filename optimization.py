@@ -1,5 +1,4 @@
 import mip
-from deep_translator import GoogleTranslator
 from data import OptimizationInput
 from typing import List, Dict
 
@@ -10,6 +9,8 @@ class Optimization:
     def __init__(self, optimization_input: OptimizationInput):
         self.model = mip.Model(solver_name=mip.CBC)
         self.input = optimization_input
+
+    # TODO: consider adding existing team to enable adding switching cost
 
     def build_model(self):
 
@@ -67,6 +68,9 @@ class Optimization:
             lin_expr=mip.xsum(attackers) >= 1
         )
 
+        # TODO: add budget constraint
+        #  How to get player costs? ...
+
         # Add objective
         self.model.objective = mip.maximize(
             mip.xsum(
@@ -76,6 +80,7 @@ class Optimization:
 
     def run(self):
         # optimize and return results
+        self.model.verbose = False
         self.model.optimize(max_seconds=30)
 
     def get_result(self) -> Dict:
@@ -83,16 +88,27 @@ class Optimization:
         return {
             "optimal_team": [
                 {
-                "person_fullname": next((player["person_fullname"] for player in self.input.players if player['player_id'] == int(var.name)), None),
-                "position_name": next(
-                    (GoogleTranslator(
-                        source="da",
-                        target="en"
-                    ).translate(player["position_name"])
-                    for player in self.input.players if player['player_id'] == int(var.name)
+                    "person_fullname": next(
+                        (
+                            player["person_fullname"]
+                            for player in self.input.players if player['player_id'] == int(var.name)
+                        ),
+                        None
                     ),
-                    None),
-                "team_name": next((player["team_name"] for player in self.input.players if player['player_id'] == int(var.name)), None),
+                    "position_name_en": next(
+                        (
+                            player["position_name_en"]
+                            for player in self.input.players if player['player_id'] == int(var.name)
+                        ),
+                        None
+                    ),
+                    "team_name": next(
+                        (
+                            player["team_name"]
+                            for player in self.input.players if player['player_id'] == int(var.name)
+                        ),
+                        None
+                    ),
                 }
                 for var in self.model.vars._VarList__vars if var.x == 1
             ],

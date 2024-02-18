@@ -1,10 +1,18 @@
 import requests
 import json
+import logging
 import pandas as pd
+import datetime as dt
 from typing import List, Dict
+from thefuzz import fuzz
+from enum import Enum
 
 # Look at player team performance stats data at https://github.com/C-Roensholt/ScrapeDanishSuperligaData
-#
+# TODO: make imports of datasets for "predictions".
+#  make ready for importing additional dataset of matches during championship.
+#  (adjust stats using these by some fraction)
+#  maybe use API instead? https://footystats.org/api/
+
 
 TEAM_NAME_MAP = {
     "Vejle Boldklub": "Vejle",
@@ -65,8 +73,14 @@ mapping IDs for corresponding bet.
 """
 
 
-class HoldetData:
-    """Data import class from Holdet.dk."""
+class ProbabilitySource(Enum):
+    """Indicates the source of the probability of a given event."""
+    PREDICTIONS = 1
+    ODDS = 1
+
+
+class HoldetDk:
+    """Data import class from https://www.holdet.dk/da."""
 
     # For now defaults to select game "Super Manager" for edition "Fall 2023" with ID 665.
     def __init__(self, game_id: int = 665):
@@ -114,29 +128,60 @@ class HoldetData:
             players[player['id']] = {'player_id': player['id'],
                                      'person_id': player['person']['id'],
                                      'team_id': player['team']['id'],
-                                     'position_id': player['position']['id'], }
+                                     'position_id': player['position']['id']}
         ruleset_data = self.ruleset_data
         positions = {}
         for position in ruleset_data['positions']:
             positions[position['id']] = {'position_id': position['id'],
-                                         'position_name': position['name']}
+                                         'position_name': position['name'],
+                                         'position_name_en': 'Goalkeeper' if position['id'] == 6 else
+                                         'Defense' if position['id'] == 7 else
+                                         'Midfielder' if position['id'] == 8 else
+                                         'Striker' if position['id'] == 9 else
+                                         None
+                                        }
         player_data = pd.DataFrame.from_dict(players, orient='index').merge(
             pd.DataFrame.from_dict(persons, orient='index'), on='person_id', how='left').merge(
             pd.DataFrame.from_dict(teams, orient='index'), on='team_id', how='left').merge(
             pd.DataFrame.from_dict(positions, orient='index'), on='position_id', how='left'
         )
-
         return player_data.to_dict('records')
 
+    def get_event_points(self, event_id: int) -> float:
+        """Get the amount of points awarded for a given event ID."""
 
-class OddsData:
-    """Data import class for odds. Default league is danish Superliga. Season is the current season."""
+        return [event["value"] for event in self.ruleset_data["fantasyEventTypes"] if event["id"] == event_id][0]
 
-    def __init__(self, api_key: str, league_id=119, season=2023, events: dict = EVENTS, bookmaker: str = "Bet365"):
+    def get_current_round_start_end_datetime(self) -> (dt.datetime, dt.datetime):
+        """Get the start and end datetime of the current round."""
+
+        current_time = dt.datetime.now(dt.timezone.utc)
+        if current_time < dt.datetime.strptime(self.game_data['start'], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=dt.timezone.utc):
+            raise Exception("The selected game is not started.")
+        elif current_time > dt.datetime.strptime(self.game_data['end'], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=dt.timezone.utc):
+            raise Exception("The selected game has ended.")
+        else:
+            return [
+                (
+                    dt.datetime.strptime(rnd['start'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc),
+                    dt.datetime.strptime(rnd['end'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc)
+                ) for rnd in self.game_data['rounds'] if
+                dt.datetime.strptime(rnd['start'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc) <
+                current_time <
+                dt.datetime.strptime(rnd['end'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc)
+            ][0]
+
+
+class ApiFootball:
+    """Data import class for odds and predictions from https://www.api-football.com/. Default league and season is
+    danish Superliga and current season."""
+
+    # TODO: auto find current season.
+
+    def __init__(self, api_key: str, league_id=119, season=2023, bookmaker: str = "Bet365"):
             self.api_key = api_key
             self.league_id = league_id
             self.season = season
-            self.events = events
             self.bookmaker = bookmaker
             self.base_url = "https://v3.football.api-sports.io"
             self.headers = {
@@ -218,70 +263,138 @@ class OddsData:
             print("Failed to retrieve data. Status code:", response.status_code)
             return None
 
-    def _curate_odds_data_match_winner(self, fixture: Dict):
-        """Curate the odds data for a fixture for the event type match_winner."""
+    def get_odds(
+            self,
+            bet_ids: List[int],
+            earliest_fixture_time_utc: dt.datetime = dt.datetime.now(dt.timezone.utc),
+            latest_fixture_time_utc: dt.datetime = None
+    ) -> Dict[int, List[Dict]]:
+        """Get fixture odds for a list of bet IDs in the given time frame."""
 
-        fixture_data = next(filter(lambda x: x["fixture"]['id'] == fixture["fixture"]["id"], self.fixtures))
-        fixture["home_team_id"] = fixture_data["teams"]["home"]["id"]
-        fixture["away_team_id"] = fixture_data["teams"]["away"]["id"]
-        # make home/away odds easily available
-        odd_data = next(filter(lambda x: x["name"] == self.bookmaker, fixture["bookmakers"]))
-        fixture["home_team_odd"] = float(next(
-            filter(lambda x: x["value"] == "Home", odd_data["bets"][0]["values"])
-        )["odd"])
-        fixture["away_team_odd"] = float(next(
-            filter(lambda x: x["value"] == "Away", odd_data["bets"][0]["values"])
-        )["odd"])
-
-    def get_odds(self, rounds_ahead: int = 1):
-        """get odds for x next rounds for all events."""
-
-        ##rounds = self._get_round_ids()
         odds = {}
-        for event_key, event in self.events.items():
-            odds[event_key] = self._get_odds_request(
-                league=self.league_id, season=self.season, bet=event["bet_id"]
+        for bet_id in bet_ids:
+            odds[bet_id] = self._get_odds_request(
+                league=self.league_id, season=self.season, bet=bet_id
             )
-
-            # Add additional relevant fields for each event type.
-            if event_key == "match_winner":
-                for fixture in odds[event_key]:
-                    self._curate_odds_data_match_winner(fixture)
+            # If there are any fixtures, apply date filter
+            if len(odds[bet_id]) > 0:
+                odds[bet_id] = [
+                    fixture for fixture in odds[bet_id]
+                    if (
+                            earliest_fixture_time_utc <=
+                            dt.datetime.fromisoformat(fixture['fixture']['date']) <=
+                            latest_fixture_time_utc
+                            if latest_fixture_time_utc
+                            else earliest_fixture_time_utc <= dt.datetime.fromisoformat(fixture['fixture']['date'])
+                    )
+                ]
+                if len(odds[bet_id]) == 0:
+                    logging.warning(f'No odds founds for bookmaker {self.bookmaker} for bet ID: {bet_id}.')
 
         return odds
+
+    def get_fixture_prediction(self, fixture_id):
+        """Get the list of available leagues and cups."""
+
+        url = f"{self.base_url}/predictions?fixture={fixture_id}"
+        response = requests.get(url, headers=self.headers)
+
+        if response.status_code == 200:
+            return response.json()["response"]
+        else:
+            print("Failed to retrieve data. Status code:", response.status_code)
+            return None
 
 
 class OptimizationInput:
     """Data class combining HoldetData and OddsData to get relevant input for optimization."""
 
-    def __init__(self, holdet_data: HoldetData, odds_data: OddsData, team_id_map: dict = TEAM_ID_MAP):
+    def __init__(self, holdet_data: HoldetDk, odds_data: ApiFootball, team_id_map: dict, events: dict):
         self.holdet_data = holdet_data
         self.odds_data = odds_data
-        self.odds = odds_data.get_odds()
         self.team_id_map = team_id_map
+        self.events = events
+        self.odds = odds_data.get_odds(
+            bet_ids=list(set([event['bet_id'] for i, event in EVENTS.items()])),
+            latest_fixture_time_utc=self.holdet_data.get_current_round_start_end_datetime()[1]
+        )
         self.players = self._get_expected_player_scores()
 
-    def _calc_expected_score_match_winner(self, player) -> float:
+    # TODO: add method for clean sheet odd
+
+    def _calc_expected_score_anytime_goal(self, player) -> float:
+        """Calculate and return the expected score for a player for the event types anytime_goal_% (there is one for
+        each player position)."""
+
+        # TODO: consider adding some score (perhaps min) for each player in team not having an odd (not all players have
+        #   odds)
+        pos_name = player["position_name_en"].lower()
+        return sum(
+            1 / float(player_odd['odd']) for odds in [
+                odd_data['bets'][0]['values'] for fixture in
+                self.odds[self.events[f'anytime_goal_{pos_name}']['bet_id']] for odd_data in
+                fixture['bookmakers'] if odd_data["name"] == self.odds_data.bookmaker
+            ] for player_odd in odds if fuzz.ratio(player_odd['value'], player['person_fullname']) > 80
+        ) * self.holdet_data.get_event_points(self.events[f'anytime_goal_{pos_name}']['holdet_event_id'])
+
+    def _calc_expected_score_match_winner(
+            self, player, prob_source: ProbabilitySource = ProbabilitySource.PREDICTIONS
+    ) -> float:
         """Calculate and return the expected score for a player for the event type match_winner."""
 
-        return sum(
-            [1 / odd["home_team_odd"] if odd["home_team_id"] == self.team_id_map[player["team_id"]] else
-             1 / odd["away_team_odd"] if odd["away_team_id"] == self.team_id_map[player["team_id"]] else
-             0
-             for odd in self.odds["match_winner"]
-             ]
-        ) * next(
-            filter(lambda x: x["name"] == "SoccerPlayerTeamWon",
-                   self.holdet_data.ruleset_data["fantasyEventTypes"])
-        )["value"]
+        if prob_source == ProbabilitySource.ODDS:
+            match_winner_odds = self.odds[self.events['match_winner']['bet_id']]
+
+            fixture_home_away_ids = {
+                fixture["fixture"]['id']: (
+                    fixture_data["teams"]["home"]["id"],
+                    fixture_data["teams"]["away"]["id"]
+                )
+                for fixture in match_winner_odds
+                for fixture_data in self.odds_data.fixtures if fixture_data["fixture"]['id'] == fixture["fixture"]["id"]
+            }
+            prob_sum = sum(
+                [
+                    1 / [
+                        [
+                            float(odd["odd"]) for odd in odd_data["bets"][0]["values"] if odd["value"] == "Home"
+                        ][0]
+                        for odd_data in fixture["bookmakers"]
+                        if odd_data["name"] == self.odds_data.bookmaker
+                    ][0]
+                    if fixture_home_away_ids[fixture["fixture"]['id']][0] == self.team_id_map[player["team_id"]]
+                    else
+                    1 / [
+                        [
+                            float(odd["odd"]) for odd in odd_data["bets"][0]["values"] if odd["value"] == "Away"
+                        ][0]
+                        for odd_data in fixture["bookmakers"]
+                        if odd_data["name"] == self.odds_data.bookmaker
+                    ][0]
+                    if fixture_home_away_ids[fixture["fixture"]['id']][1] == self.team_id_map[player["team_id"]]
+                    else
+                    0
+                    for fixture in match_winner_odds
+                ]
+            )
+
+        elif prob_source == ProbabilitySource.ODDS:
+            prob_sum = 1
+        else:
+            raise Exception(f"ProbabilitySource {prob_source} not implemented here!")
+
+        return prob_sum * self.holdet_data.get_event_points(self.events['match_winner']['holdet_event_id'])
 
     def _get_expected_player_scores(self):
         """Get list of players including expected score."""
 
         player_scores = self.holdet_data.player_data
-        for event_key, event in self.odds_data.events.items():
+        for event_key, event in self.events.items():
             if event_key == "match_winner":
                 for player in player_scores:
                     player["expected_score"] = self._calc_expected_score_match_winner(player)
+            #if 'anytime_goal_' in event_key:
+            #    for player in player_scores:
+            #        player["expected_score"] += self._calc_expected_score_anytime_goal(player)
 
         return player_scores
