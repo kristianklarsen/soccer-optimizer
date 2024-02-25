@@ -28,7 +28,7 @@ TEAM_NAME_MAP = {
     "Hvidovre IF": "Hvidovre",
     "Silkeborg IF": "Silkeborg"
 }
-"""Team name map from Holdet (key) to Odds data (value)."""
+"""Team name map from Holdet (key) to ApiFootball data (value)."""
 
 TEAM_ID_MAP = {
     3977: 395,
@@ -44,7 +44,7 @@ TEAM_ID_MAP = {
     4245: 2072,
     4107: 2073
 }
-"""Team ID map from Holdet (key) to Odds data (value)."""
+"""Team ID map from Holdet (key) to ApiFootball data (value)."""
 
 EVENTS = {
     "match_winner": {    # player team won   (using "match winner" bet. Select "Home" or "Away" odd based on player.)
@@ -75,7 +75,7 @@ mapping IDs for corresponding bet.
 
 class ProbabilitySource(Enum):
     """Indicates the source of the probability of a given event."""
-    PREDICTIONS = 1
+    PREDICTIONS = 0
     ODDS = 1
 
 
@@ -83,12 +83,13 @@ class HoldetDk:
     """Data import class from https://www.holdet.dk/da."""
 
     # For now defaults to select game "Super Manager" for edition "Fall 2023" with ID 665.
-    def __init__(self, game_id: int = 665):
+    def __init__(self, game_id: int = 684):
         self.game_id = game_id
         self.game_data = self.get_game_data()
         self.tournament_data = self.get_tournament_data()
         self.ruleset_data = self.get_ruleset_data()
         self.player_data = self.get_player_data()
+        self.current_round_start_end_time = self.get_current_round_start_end_datetime()
 
     def get_game_data(self) -> dict:
         game_data = requests.get(
@@ -178,7 +179,7 @@ class ApiFootball:
 
     # TODO: auto find current season.
 
-    def __init__(self, api_key: str, league_id=119, season=2023, bookmaker: str = "Bet365"):
+    def __init__(self, api_key: str, league_id: int = 119, season: int = 2023, bookmaker: str = "Bet365"):
             self.api_key = api_key
             self.league_id = league_id
             self.season = season
@@ -293,8 +294,8 @@ class ApiFootball:
 
         return odds
 
-    def get_fixture_prediction(self, fixture_id):
-        """Get the list of available leagues and cups."""
+    def get_fixture_prediction_request(self, fixture_id):
+        """Get predictions for a fixture."""
 
         url = f"{self.base_url}/predictions?fixture={fixture_id}"
         response = requests.get(url, headers=self.headers)
@@ -305,18 +306,43 @@ class ApiFootball:
             print("Failed to retrieve data. Status code:", response.status_code)
             return None
 
+    def get_fixture_predictions(
+            self,
+            earliest_fixture_time_utc: dt.datetime = dt.datetime.now(dt.timezone.utc),
+            latest_fixture_time_utc: dt.datetime = None
+    ) -> Dict:
+        """Get predictions for fixtures in a given period."""
+
+        fixtures_in_period = [
+            f['fixture']['id'] for f in self.fixtures
+            if (
+                earliest_fixture_time_utc <=
+                dt.datetime.fromisoformat(f['fixture']['date']) <=
+                latest_fixture_time_utc
+                if latest_fixture_time_utc
+                else earliest_fixture_time_utc <= dt.datetime.fromisoformat(f['fixture']['date'])
+            )
+        ]
+        return {
+            f: self.get_fixture_prediction_request(f) for f in fixtures_in_period
+        }
+
 
 class OptimizationInput:
-    """Data class combining HoldetData and OddsData to get relevant input for optimization."""
+    """Combining HoldetDk and ApiFootball to get relevant input for optimization."""
 
-    def __init__(self, holdet_data: HoldetDk, odds_data: ApiFootball, team_id_map: dict, events: dict):
-        self.holdet_data = holdet_data
-        self.odds_data = odds_data
+    def __init__(self, holdet: HoldetDk, api_football: ApiFootball, team_id_map: dict, events: dict):
+        self.holdet = holdet
+        self.api_football = api_football
         self.team_id_map = team_id_map
         self.events = events
-        self.odds = odds_data.get_odds(
+        self.odds = api_football.get_odds(
             bet_ids=list(set([event['bet_id'] for i, event in EVENTS.items()])),
-            latest_fixture_time_utc=self.holdet_data.get_current_round_start_end_datetime()[1]
+            latest_fixture_time_utc=self.holdet.current_round_start_end_time[1]
+        )
+        self.predictions = self.api_football.get_fixture_predictions(
+            earliest_fixture_time_utc=self.holdet.current_round_start_end_time[0],
+            latest_fixture_time_utc=self.holdet.current_round_start_end_time[1]
         )
         self.players = self._get_expected_player_scores()
 
@@ -333,9 +359,9 @@ class OptimizationInput:
             1 / float(player_odd['odd']) for odds in [
                 odd_data['bets'][0]['values'] for fixture in
                 self.odds[self.events[f'anytime_goal_{pos_name}']['bet_id']] for odd_data in
-                fixture['bookmakers'] if odd_data["name"] == self.odds_data.bookmaker
+                fixture['bookmakers'] if odd_data["name"] == self.api_football.bookmaker
             ] for player_odd in odds if fuzz.ratio(player_odd['value'], player['person_fullname']) > 80
-        ) * self.holdet_data.get_event_points(self.events[f'anytime_goal_{pos_name}']['holdet_event_id'])
+        ) * self.holdet.get_event_points(self.events[f'anytime_goal_{pos_name}']['holdet_event_id'])
 
     def _calc_expected_score_match_winner(
             self, player, prob_source: ProbabilitySource = ProbabilitySource.PREDICTIONS
@@ -351,7 +377,7 @@ class OptimizationInput:
                     fixture_data["teams"]["away"]["id"]
                 )
                 for fixture in match_winner_odds
-                for fixture_data in self.odds_data.fixtures if fixture_data["fixture"]['id'] == fixture["fixture"]["id"]
+                for fixture_data in self.api_football.fixtures if fixture_data["fixture"]['id'] == fixture["fixture"]["id"]
             }
             prob_sum = sum(
                 [
@@ -360,7 +386,7 @@ class OptimizationInput:
                             float(odd["odd"]) for odd in odd_data["bets"][0]["values"] if odd["value"] == "Home"
                         ][0]
                         for odd_data in fixture["bookmakers"]
-                        if odd_data["name"] == self.odds_data.bookmaker
+                        if odd_data["name"] == self.api_football.bookmaker
                     ][0]
                     if fixture_home_away_ids[fixture["fixture"]['id']][0] == self.team_id_map[player["team_id"]]
                     else
@@ -369,7 +395,7 @@ class OptimizationInput:
                             float(odd["odd"]) for odd in odd_data["bets"][0]["values"] if odd["value"] == "Away"
                         ][0]
                         for odd_data in fixture["bookmakers"]
-                        if odd_data["name"] == self.odds_data.bookmaker
+                        if odd_data["name"] == self.api_football.bookmaker
                     ][0]
                     if fixture_home_away_ids[fixture["fixture"]['id']][1] == self.team_id_map[player["team_id"]]
                     else
@@ -378,17 +404,24 @@ class OptimizationInput:
                 ]
             )
 
-        elif prob_source == ProbabilitySource.ODDS:
-            prob_sum = 1
+        elif prob_source == ProbabilitySource.PREDICTIONS:
+            prob_sum = sum(
+                float(fixture[0]['predictions']['percent']['home'].replace('%', '')) / 100
+                if fixture[0]['teams']['home']['id'] == self.team_id_map[player["team_id"]]
+                else float(fixture[0]['predictions']['percent']['away'].replace('%', '')) / 100
+                if fixture[0]['teams']['away']['id'] == self.team_id_map[player["team_id"]]
+                else 0
+                for i, fixture in self.predictions.items()
+            )
         else:
             raise Exception(f"ProbabilitySource {prob_source} not implemented here!")
 
-        return prob_sum * self.holdet_data.get_event_points(self.events['match_winner']['holdet_event_id'])
+        return prob_sum * self.holdet.get_event_points(self.events['match_winner']['holdet_event_id'])
 
     def _get_expected_player_scores(self):
         """Get list of players including expected score."""
 
-        player_scores = self.holdet_data.player_data
+        player_scores = self.holdet.player_data
         for event_key, event in self.events.items():
             if event_key == "match_winner":
                 for player in player_scores:

@@ -68,6 +68,19 @@ class Optimization:
             lin_expr=mip.xsum(attackers) >= 1
         )
 
+        # Add team constraints
+        teams = list(set([player["team_name"] for player in self.input.players]))
+        players_by_team = [
+            [
+                x[i] if player["team_name"] == team else 0 for i, player in enumerate(self.input.players)
+            ] for team in teams
+        ]
+        for team in players_by_team:
+            self.model.add_constr(
+                name="Max 4 players from same team",
+                lin_expr=mip.xsum(team) <= 4
+            )
+
         # TODO: add budget constraint
         #  How to get player costs? ...
 
