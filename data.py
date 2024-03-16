@@ -12,6 +12,10 @@ from enum import Enum
 #  make ready for importing additional dataset of matches during championship.
 #  (adjust stats using these by some fraction)
 #  maybe use API instead? https://footystats.org/api/
+#
+# TODO: wrap up in Flask app.
+#  try deploy Flask app from localhost using e.g. pinggy.io
+#  later deploy via https://cloud.google.com/run#pricing   (cheapest)
 
 
 TEAM_NAME_MAP = {
