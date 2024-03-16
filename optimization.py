@@ -5,8 +5,121 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from PIL import Image
 from mplsoccer import VerticalPitch, Sbopen, FontManager, inset_image
+from enum import Enum
+from thefuzz import fuzz
 
-from data import OptimizationInput
+from data import HoldetDk, ApiFootball, EVENTS
+
+
+class ProbabilitySource(Enum):
+    """Indicates the source of the probability of a given event."""
+    PREDICTIONS = 0
+    ODDS = 1
+
+
+class OptimizationInput:
+    """Combining HoldetDk and ApiFootball to get relevant input for optimization."""
+
+    def __init__(self, holdet: HoldetDk, api_football: ApiFootball, team_id_map: dict, events: dict):
+        self.holdet = holdet
+        self.api_football = api_football
+        self.team_id_map = team_id_map
+        self.events = events
+        self.odds = api_football.get_odds(
+            bet_ids=list(set([event['bet_id'] for i, event in EVENTS.items()])),
+            latest_fixture_time_utc=self.holdet.current_round_start_end_time[1]
+        )
+        self.predictions = self.api_football.get_fixture_predictions(
+            earliest_fixture_time_utc=self.holdet.current_round_start_end_time[0],
+            latest_fixture_time_utc=self.holdet.current_round_start_end_time[1]
+        )
+        self.players = self._get_expected_player_scores()
+
+    # TODO: add method for clean sheet odd
+
+    def _calc_expected_score_anytime_goal(self, player) -> float:
+        """Calculate and return the expected score for a player for the event types anytime_goal_% (there is one for
+        each player position)."""
+
+        # TODO: consider adding some score (perhaps min) for each player in team not having an odd (not all players have
+        #   odds)
+        pos_name = player["position_name_en"].lower()
+        return sum(
+            1 / float(player_odd['odd']) for odds in [
+                odd_data['bets'][0]['values'] for fixture in
+                self.odds[self.events[f'anytime_goal_{pos_name}']['bet_id']] for odd_data in
+                fixture['bookmakers'] if odd_data["name"] == self.api_football.bookmaker
+            ] for player_odd in odds if fuzz.ratio(player_odd['value'], player['person_fullname']) > 80
+        ) * self.holdet.get_event_points(self.events[f'anytime_goal_{pos_name}']['holdet_event_id'])
+
+    def _calc_expected_score_match_winner(
+            self, player, prob_source: ProbabilitySource = ProbabilitySource.PREDICTIONS
+    ) -> float:
+        """Calculate and return the expected score for a player for the event type match_winner."""
+
+        if prob_source == ProbabilitySource.ODDS:
+            match_winner_odds = self.odds[self.events['match_winner']['bet_id']]
+
+            fixture_home_away_ids = {
+                fixture["fixture"]['id']: (
+                    fixture_data["teams"]["home"]["id"],
+                    fixture_data["teams"]["away"]["id"]
+                )
+                for fixture in match_winner_odds
+                for fixture_data in self.api_football.fixtures if fixture_data["fixture"]['id'] == fixture["fixture"]["id"]
+            }
+            prob_sum = sum(
+                [
+                    1 / [
+                        [
+                            float(odd["odd"]) for odd in odd_data["bets"][0]["values"] if odd["value"] == "Home"
+                        ][0]
+                        for odd_data in fixture["bookmakers"]
+                        if odd_data["name"] == self.api_football.bookmaker
+                    ][0]
+                    if fixture_home_away_ids[fixture["fixture"]['id']][0] == self.team_id_map[player["team_id"]]
+                    else
+                    1 / [
+                        [
+                            float(odd["odd"]) for odd in odd_data["bets"][0]["values"] if odd["value"] == "Away"
+                        ][0]
+                        for odd_data in fixture["bookmakers"]
+                        if odd_data["name"] == self.api_football.bookmaker
+                    ][0]
+                    if fixture_home_away_ids[fixture["fixture"]['id']][1] == self.team_id_map[player["team_id"]]
+                    else
+                    0
+                    for fixture in match_winner_odds
+                ]
+            )
+
+        elif prob_source == ProbabilitySource.PREDICTIONS:
+            prob_sum = sum(
+                float(fixture[0]['predictions']['percent']['home'].replace('%', '')) / 100
+                if fixture[0]['teams']['home']['id'] == self.team_id_map[player["team_id"]]
+                else float(fixture[0]['predictions']['percent']['away'].replace('%', '')) / 100
+                if fixture[0]['teams']['away']['id'] == self.team_id_map[player["team_id"]]
+                else 0
+                for i, fixture in self.predictions.items()
+            )
+        else:
+            raise Exception(f"ProbabilitySource {prob_source} not implemented here!")
+
+        return prob_sum * self.holdet.get_event_points(self.events['match_winner']['holdet_event_id'])
+
+    def _get_expected_player_scores(self):
+        """Get list of players including expected score."""
+
+        player_scores = self.holdet.player_data
+        for event_key, event in self.events.items():
+            if event_key == "match_winner":
+                for player in player_scores:
+                    player["expected_score"] = self._calc_expected_score_match_winner(player)
+            #if 'anytime_goal_' in event_key:
+            #    for player in player_scores:
+            #        player["expected_score"] += self._calc_expected_score_anytime_goal(player)
+
+        return player_scores
 
 
 class Optimization:
