@@ -8,6 +8,7 @@ from optimization import Optimization, OptimizationInput
 app = Flask(__name__)
 cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 
+# TODO: add chatgpt based "feedback from assistant coach".
 
 @cache.cached(timeout=600)
 def _get_data(api_football_key: str):
