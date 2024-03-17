@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% from 'bootstrap5/form.html' import render_form %}
+
+{% block title %}
+Welcome
+{% endblock %}
+
+
+{% block content %}
+
+
+<div class="container">
+  <div class="row">
+    <div class="col-md-10 col-lg-8 mx-lg-auto mx-md-auto">
+
+      <h1 class="pt-5 pb-2">Welcome to your Virtual Soccer Assistant.</h1>
+
+      <p class="lead">I am here to assist you in setting a winning team for the EURO 2024 fantasy game at <a href="https://holdet.dk/">holdet.dk</a> </p>
+
+      {{ render_form(form) }}
+
+      {% if optimal_team_table %}
+        <h2>Optimal Team</h2>
+        {{ optimal_team_table | safe }}  <!-- Render the output HTML safely -->
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+
+{% endblock %}
