@@ -22,6 +22,8 @@ app.secret_key = foo
 
 
 class ApiFootballKey(FlaskForm):
+    # TODO: add intelligent validation by test of key using https://www.api-football.com/documentation-v3#section/Authentication/API-SPORTS-Account
+    #  or ditch this and hardcode key to internal and extend cache?
     key = PasswordField('Please submit api-football key:', validators=[DataRequired(), Length(30, 50)])
     submit = SubmitField('Submit')
 
