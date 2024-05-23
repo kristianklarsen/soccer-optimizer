@@ -202,6 +202,7 @@ class Optimization:
 
         # TODO: add budget constraint
         #  How to get player costs? ...
+        #  Get from this https://fs-api.swush.com/games/684/rounds/1/statistics?appid=holdet&culture=da
 
         # Add objective
         self.model.objective = mip.maximize(

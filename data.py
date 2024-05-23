@@ -28,7 +28,8 @@ TEAM_NAME_MAP = {
     "Lyngby BK": "Lyngby",
     "Viborg FF": "Viborg",
     "Hvidovre IF": "Hvidovre",
-    "Silkeborg IF": "Silkeborg"
+    "Silkeborg IF": "Silkeborg",
+
 }
 """Team name map from Holdet (key) to ApiFootball data (value)."""
 
@@ -44,7 +45,31 @@ TEAM_ID_MAP = {
     3954: 625,
     3957: 2070,
     4245: 2072,
-    4107: 2073
+    4107: 2073,
+    3966: 25,
+    4921: 1108,
+    4740: 769,
+    3959: 15,
+    3972: 9,
+    3964: 3,
+    3971: 768,
+    4739: 778,
+    4304: 1091,
+    4290: 21,
+    4302: 14,
+    4291: 10,
+    3970: 1118,
+    3963: 775,
+    3969: 2,
+    4648: 1,
+    4303: 773,
+    3968: 774,
+    3962: 777,
+    3961: 27,
+    3960: 770,
+    5128: 1104,
+    3967: 24,
+    4511: 772
 }
 """Team ID map from Holdet (key) to ApiFootball data (value)."""
 
@@ -78,8 +103,8 @@ mapping IDs for corresponding bet.
 class HoldetDk:
     """Data import class from https://www.holdet.dk/da."""
 
-    # For now defaults to select game "Super Manager" for edition "Fall 2023" with ID 665.
-    def __init__(self, game_id: int = 684):
+    # Default game is EURO 2024.
+    def __init__(self, game_id: int = 686):
         self.game_id = game_id
         self.game_data = self.get_game_data()
         self.tournament_data = self.get_tournament_data()
@@ -150,23 +175,23 @@ class HoldetDk:
         return [event["value"] for event in self.ruleset_data["fantasyEventTypes"] if event["id"] == event_id][0]
 
     def get_current_round_start_end_datetime(self) -> (dt.datetime, dt.datetime):
-        """Get the start and end datetime of the current round."""
+        """Get the start and end datetime of the currently active round (switches when round is closed for trading)."""
 
         current_time = dt.datetime.now(dt.timezone.utc)
-        if current_time < dt.datetime.strptime(self.game_data['start'], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=dt.timezone.utc):
-            raise Exception("The selected game is not started.")
-        elif current_time > dt.datetime.strptime(self.game_data['end'], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=dt.timezone.utc):
-            raise Exception("The selected game has ended.")
-        else:
-            return [
+        rnd_start_end = next(
+            (
                 (
                     dt.datetime.strptime(rnd['start'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc),
                     dt.datetime.strptime(rnd['end'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc)
-                ) for rnd in self.game_data['rounds'] if
-                dt.datetime.strptime(rnd['start'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc) <
-                current_time <
-                dt.datetime.strptime(rnd['end'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc)
-            ][0]
+                ) for rnd in self.game_data['rounds']
+                if current_time < dt.datetime.strptime(rnd['close'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc)
+            ),
+            None
+        )
+        if rnd_start_end is None:
+            raise Exception("The selected game has ended.")
+        else:
+            return rnd_start_end
 
 
 class ApiFootball:
@@ -175,7 +200,7 @@ class ApiFootball:
 
     # TODO: auto find current season.
 
-    def __init__(self, api_key: str, league_id: int = 119, season: int = 2023, bookmaker: str = "Bet365"):
+    def __init__(self, api_key: str, league_id: int = 4, season: int = 2024, bookmaker: str = "Bet365"):
             self.api_key = api_key
             self.league_id = league_id
             self.season = season

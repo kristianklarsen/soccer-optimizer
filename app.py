@@ -1,6 +1,6 @@
 import pandas as pd
 import secrets
-from flask import Flask, request, redirect, url_for, render_template
+from flask import Flask, request, render_template
 from flask_caching import Cache
 from flask_bootstrap import Bootstrap5
 
