@@ -176,7 +176,6 @@ class HoldetDk:
 
     def get_current_round_start_end_datetime(self) -> (dt.datetime, dt.datetime):
         """Get the start and end datetime of the currently active round (switches when round is closed for trading)."""
-
         current_time = dt.datetime.now(dt.timezone.utc)
         rnd_start_end = next(
             (

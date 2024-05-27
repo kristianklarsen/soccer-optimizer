@@ -94,13 +94,15 @@ class OptimizationInput:
             )
 
         elif prob_source == ProbabilitySource.PREDICTIONS:
+            if not all(len(fixture) > 0 for i, fixture in self.predictions.items()):
+                raise Exception("One or more predictions could not be fetched from the api-football api.")
             prob_sum = sum(
                 float(fixture[0]['predictions']['percent']['home'].replace('%', '')) / 100
                 if fixture[0]['teams']['home']['id'] == self.team_id_map[player["team_id"]]
                 else float(fixture[0]['predictions']['percent']['away'].replace('%', '')) / 100
                 if fixture[0]['teams']['away']['id'] == self.team_id_map[player["team_id"]]
                 else 0
-                for i, fixture in self.predictions.items()
+                for i, fixture in self.predictions.items() if len(fixture) > 0
             )
         else:
             raise Exception(f"ProbabilitySource {prob_source} not implemented here!")
