@@ -202,9 +202,14 @@ class Optimization:
                 lin_expr=mip.xsum(team) <= 4
             )
 
-        # TODO: add budget constraint
-        #  How to get player costs? ...
-        #  Get from this https://fs-api.swush.com/games/684/rounds/1/statistics?appid=holdet&culture=da
+        # Add budget constraint
+        initial_budget = 50000000
+        self.model.add_constr(
+            name="Budget constraint",
+            lin_expr=mip.xsum(
+                x[i] * player['current_value'] for i, player in enumerate(self.input.players)
+            ) <= initial_budget
+        )
 
         # Add objective
         self.model.objective = mip.maximize(
@@ -220,41 +225,46 @@ class Optimization:
 
     def get_result(self) -> dict:
         """Returns optimum, i.e. selected players that optimizes expected score."""
+        selected_player_ids = [int(var.name) for var in self.model.vars._VarList__vars if var.x == 1]
         players = [
                 {
                     "person_fullname": next(
                         (
                             player["person_fullname"]
-                            for player in self.input.players if player['player_id'] == int(var.name)
+                            for player in self.input.players if player['player_id'] == player_id
                         ),
                         None
                     ),
                     "position_name_en": next(
                         (
                             player["position_name_en"]
-                            for player in self.input.players if player['player_id'] == int(var.name)
+                            for player in self.input.players if player['player_id'] == player_id
                         ),
                         None
                     ),
                     "team_name": next(
                         (
                             player["team_name"]
-                            for player in self.input.players if player['player_id'] == int(var.name)
+                            for player in self.input.players if player['player_id'] == player_id
                         ),
                         None
                     ),
                 }
-                for var in self.model.vars._VarList__vars if var.x == 1
+                for player_id in selected_player_ids
             ]
         formation = (
             f"{len([p for p in players if p['position_name_en'] == 'Defense'])}"
             f"{len([p for p in players if p['position_name_en'] == 'Midfielder'])}"
             f"{len([p for p in players if p['position_name_en'] == 'Striker'])}"
         )
+        players_total_value = sum(
+            player['current_value'] for player in self.input.players if player['player_id'] in selected_player_ids
+        )
         return {
             "optimal_team": players,
             "formation": formation,
-            "expected_score": self.model.objective_value
+            "expected_score": self.model.objective_value,
+            "players_total_value": players_total_value
         }
 
 

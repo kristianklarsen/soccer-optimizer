@@ -162,10 +162,21 @@ class HoldetDk:
                                          'Striker' if position['id'] == 9 else
                                          None
                                         }
+        round_stats = self.get_current_round_stats()
+        player_stats = {}
+        for player in round_stats:
+            player_stats[player['player']['id']] = {
+                'player_id': player['player']['id'],
+                'current_value': player['values']['value'],
+                'growth_since_last_round': player['values']['growth'],
+                'total_growth': player['values']['totalGrowth'],
+                'popularity': player['values']['popularity']
+            }
         player_data = pd.DataFrame.from_dict(players, orient='index').merge(
             pd.DataFrame.from_dict(persons, orient='index'), on='person_id', how='left').merge(
             pd.DataFrame.from_dict(teams, orient='index'), on='team_id', how='left').merge(
-            pd.DataFrame.from_dict(positions, orient='index'), on='position_id', how='left'
+            pd.DataFrame.from_dict(positions, orient='index'), on='position_id', how='left').merge(
+            pd.DataFrame.from_dict(player_stats, orient='index'), on='player_id', how='left'
         )
         return player_data.to_dict('records')
 
@@ -174,23 +185,36 @@ class HoldetDk:
 
         return [event["value"] for event in self.ruleset_data["fantasyEventTypes"] if event["id"] == event_id][0]
 
-    def get_current_round_start_end_datetime(self) -> (dt.datetime, dt.datetime):
-        """Get the start and end datetime of the currently active round (switches when round is closed for trading)."""
+    def get_current_round(self) -> int:
+        """Return current round number (switches when round is closed for trading)."""
         current_time = dt.datetime.now(dt.timezone.utc)
-        rnd_start_end = next(
+        rnd_number = next(
             (
-                (
-                    dt.datetime.strptime(rnd['start'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc),
-                    dt.datetime.strptime(rnd['end'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc)
-                ) for rnd in self.game_data['rounds']
+                i+1 for i, rnd in enumerate(self.game_data['rounds'])
                 if current_time < dt.datetime.strptime(rnd['close'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc)
             ),
             None
         )
-        if rnd_start_end is None:
+        if rnd_number is None:
             raise Exception("The selected game has ended.")
         else:
-            return rnd_start_end
+            return rnd_number
+
+    def get_current_round_stats(self) -> dict:
+        rnd_no = self.get_current_round()
+        round_stats = requests.get(
+            f"https://fs-api.swush.com/games/{self.game_id}/rounds/{rnd_no}/statistics?appid=holdet&culture=da")
+        game_data_dict = json.loads(round_stats.text)
+        return game_data_dict
+
+    def get_current_round_start_end_datetime(self) -> (dt.datetime, dt.datetime):
+        """Get the start and end datetime of the currently active round (switches when round is closed for trading)."""
+        rnd_idx = self.get_current_round()-1
+        rnd = self.game_data['rounds'][rnd_idx]
+        return (
+            dt.datetime.strptime(rnd['start'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc),
+            dt.datetime.strptime(rnd['end'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc)
+        )
 
 
 class ApiFootball:
