@@ -273,6 +273,20 @@ class ApiFootball:
                             f"{print(errors)}")
         return response.json()["response"]
 
+    def get_injuries(self):
+        """Get injuries data for the season."""
+
+        url = f"{self.base_url}/injuries"
+        response = requests.get(url, headers=self.headers, params={"league": self.league_id, "season": self.season})
+
+        if response.status_code != 200:
+            raise Exception(f"Failed to retrieve data from api-football. Status code: {response.status_code}")
+        errors = response.json()["errors"] if len(response.json()["errors"]) > 0 else None
+        if errors:
+            raise Exception(f"The api-football api responded, but the following errors were raised: "
+                            f"{print(errors)}")
+        return response.json()["response"]
+
     def get_bets(self):
         """Get all available bets for pre-match odds."""
 

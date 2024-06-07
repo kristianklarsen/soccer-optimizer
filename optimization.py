@@ -1,4 +1,5 @@
 import mip
+import datetime as dt
 import matplotlib as mpl
 import matplotlib.patheffects as path_effects
 import matplotlib.pyplot as plt
@@ -123,6 +124,20 @@ class OptimizationInput:
 
         return player_scores
 
+    def get_current_round_injured_players(self):
+        """Get list of player names who are injured for fixtures in the current round."""
+        all_injuries = self.api_football.get_injuries()
+        current_round_time_interval = self.holdet.current_round_start_end_time
+        round_injuries = [
+            injury for injury in all_injuries if
+            current_round_time_interval[0] <
+            dt.datetime.strptime(injury['fixture']['date'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc) <
+            current_round_time_interval[1]
+        ]
+        return list(set(
+            injury['player']['name'] for injury in round_injuries
+        ))
+
 
 class Optimization:
     """Optimization class."""
@@ -202,6 +217,21 @@ class Optimization:
                 lin_expr=mip.xsum(team) <= 4
             )
 
+        # Add constraint to avoid injured players
+        injured_players = self.input.get_current_round_injured_players()
+        injured_players_holdet_names = [
+            player_holdet['person_fullname']
+            for player_holdet in self.input.players
+            for player_api in injured_players
+            if fuzz.ratio(player_holdet['person_shortname'], player_api) > 80
+        ]
+        for i, player in enumerate(self.input.players):
+            if player['person_shortname'] in injured_players_holdet_names:
+                self.model.add_constr(
+                    name=f"Avoid buying injured player {player['person_fullname']}.",
+                    lin_expr=x[i] == 0
+                )
+
         # Add budget constraint
         budget = 50000000
         min_spend_portion = 0.95
@@ -216,6 +246,7 @@ class Optimization:
         )
 
         # Add objective
+        # TODO: add factors from stats (see football api players stats), e.g. minutes played
         self.model.objective = mip.maximize(
             mip.xsum(
                 x[i] * player["expected_score"] for i, player in enumerate(self.input.players)
