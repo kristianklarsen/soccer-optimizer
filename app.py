@@ -44,6 +44,9 @@ def get_optimal_team_df():
     optimization.run()
     r = optimization.get_result()
     optimal_team_df = pd.DataFrame(r['optimal_team'])
+    # Order by position
+    sort_order = {'Goalkeeper': 0, 'Defense': 1, 'Midfielder': 2, 'Striker': 3}
+    optimal_team_df.sort_values(by=['position_name_en'], key=lambda x: x.map(sort_order), inplace=True)
     return optimal_team_df
 
 
@@ -66,4 +69,4 @@ def print_optimal_team():
 
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=8080)
+    app.run()

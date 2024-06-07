@@ -203,12 +203,16 @@ class Optimization:
             )
 
         # Add budget constraint
-        initial_budget = 50000000
+        budget = 50000000
+        min_spend_portion = 0.95
+        team_value = mip.xsum(x[i] * player['current_value'] for i, player in enumerate(self.input.players))
         self.model.add_constr(
             name="Budget constraint",
-            lin_expr=mip.xsum(
-                x[i] * player['current_value'] for i, player in enumerate(self.input.players)
-            ) <= initial_budget
+            lin_expr=team_value <= budget
+        )
+        self.model.add_constr(
+            name="Minimum spend constraint",
+            lin_expr=team_value >= budget * min_spend_portion
         )
 
         # Add objective
