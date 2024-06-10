@@ -8,6 +8,7 @@ from PIL import Image
 from mplsoccer import VerticalPitch, Sbopen, FontManager, inset_image
 from enum import Enum
 from thefuzz import fuzz
+from typing import List
 
 from data import HoldetDk, ApiFootball, EVENTS
 
@@ -21,11 +22,14 @@ class ProbabilitySource(Enum):
 class OptimizationInput:
     """Combining HoldetDk and ApiFootball to get relevant input for optimization."""
 
-    def __init__(self, holdet: HoldetDk, api_football: ApiFootball, team_id_map: dict, events: dict):
+    def __init__(
+            self, holdet: HoldetDk, api_football: ApiFootball, team_id_map: dict, events: dict, existing_player_ids: List[int]
+    ):
         self.holdet = holdet
         self.api_football = api_football
         self.team_id_map = team_id_map
         self.events = events
+        self.existing_player_ids = existing_player_ids
         self.odds = api_football.get_odds(
             bet_ids=list(set([event['bet_id'] for i, event in EVENTS.items()])),
             latest_fixture_time_utc=self.holdet.current_round_start_end_time[1]
@@ -245,11 +249,29 @@ class Optimization:
             lin_expr=team_value >= budget * min_spend_portion
         )
 
-        # Add objective
+        # Define objective terms
         # TODO: add factors from stats (see football api players stats), e.g. minutes played
+        transfer_cost_rate = 0.01
+        print(self.input.existing_player_ids)
+        transfer_costs_shift_in = [
+            -player['current_value'] * transfer_cost_rate   # Transfer costs to shift in a player
+            if player['player_id'] not in self.input.existing_player_ids
+            else 0
+            for i, player in enumerate(self.input.players)
+        ]
+        transfer_costs_shift_out = [
+            player['current_value'] * transfer_cost_rate    # Transfer cost lost if shifting out a player
+            if player['player_id'] in self.input.existing_player_ids
+            else 0
+            for i, player in enumerate(self.input.players)
+        ]
+        # Add objective
+        # Maximize sum of expected score of chosen players.
+        # Add transfer costs.
         self.model.objective = mip.maximize(
             mip.xsum(
-                x[i] * player["expected_score"] for i, player in enumerate(self.input.players)
+                x[i] * (player["expected_score"] + transfer_costs_shift_in[i] + transfer_costs_shift_out[i])
+                for i, player in enumerate(self.input.players)
             )
         )
 

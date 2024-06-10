@@ -5,7 +5,7 @@ from flask_caching import Cache
 from flask_bootstrap import Bootstrap5
 
 from flask_wtf import FlaskForm, CSRFProtect
-from wtforms import PasswordField, SubmitField
+from wtforms import PasswordField, SubmitField, SelectMultipleField, SelectField
 from wtforms.validators import DataRequired, Length
 from data import ApiFootball, HoldetDk, TEAM_ID_MAP, EVENTS
 from optimization import Optimization, OptimizationInput
@@ -22,23 +22,31 @@ API_FOOTBALL_KEY = "bf198eceb1b289cd1d865352a470f77f"
 
 # TODO: add chatgpt based "feedback from assistant coach".
 
-
-class Button(FlaskForm):
-    # TODO: add intelligent validation by test of key using https://www.api-football.com/documentation-v3#section/Authentication/API-SPORTS-Account
-    #  or ditch this and hardcode key to internal and extend cache?
-    submit = SubmitField('Optimize')
-
-
-@cache.cached(timeout=600)
-def _get_data():
+def get_data(existing_player_ids: list):
     odds_data = ApiFootball(API_FOOTBALL_KEY)
     holdet_data = HoldetDk()
-    optimization_input = OptimizationInput(holdet_data, odds_data, team_id_map=TEAM_ID_MAP, events=EVENTS)
+    optimization_input = OptimizationInput(
+        holdet_data, odds_data, existing_player_ids=existing_player_ids, team_id_map=TEAM_ID_MAP, events=EVENTS
+    )
     return optimization_input
 
 
-def get_optimal_team_df():
-    optimization_input = _get_data()
+def get_player_names():
+    data = get_data(existing_player_ids=[])
+    return [(player['player_id'], player['person_fullname']) for player in data.players]
+
+
+class TeamForm(FlaskForm):
+    def __init__(self, choices, *args, **kwargs):
+        super(TeamForm, self).__init__(*args, **kwargs)
+        self.options.choices = choices
+
+    options = SelectMultipleField('Input existing team')
+    submit = SubmitField('Optimize')
+
+
+def get_optimal_team_df(existing_player_ids: list):
+    optimization_input = get_data(existing_player_ids)
     optimization = Optimization(optimization_input)
     optimization.build_model()
     optimization.run()
@@ -52,21 +60,18 @@ def get_optimal_team_df():
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    form = Button()
     optimal_team_table = None
+    choices = get_player_names()
+    team_form = TeamForm(choices=choices)
 
-    if form.validate_on_submit():
-        optimal_team_df = get_optimal_team_df()
-        optimal_team_table = optimal_team_df.to_html(classes='table table-striped', escape=False)
+    if team_form.validate_on_submit():
+        existing_player_ids = team_form.options.data
+        existing_player_ids = [int(p_id) for p_id in existing_player_ids]
+        optimal_team_df = get_optimal_team_df(existing_player_ids)
+        optimal_team_table = optimal_team_df.to_html(classes='table table-striped', escape=False, index=False)
 
-    return render_template('index.html', form=form, optimal_team_table=optimal_team_table)
-
-
-@app.route("/optimize")
-def print_optimal_team():
-    optimal_team_df = get_optimal_team_df()
-    return optimal_team_df.to_html()
+    return render_template('index.html', team_form=team_form, optimal_team_table=optimal_team_table)
 
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host='0.0.0.0')
