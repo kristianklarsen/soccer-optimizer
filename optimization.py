@@ -23,13 +23,16 @@ class OptimizationInput:
     """Combining HoldetDk and ApiFootball to get relevant input for optimization."""
 
     def __init__(
-            self, holdet: HoldetDk, api_football: ApiFootball, team_id_map: dict, events: dict, existing_player_ids: List[int]
+            self, holdet: HoldetDk, api_football: ApiFootball, team_id_map: dict, events: dict,
+            existing_player_ids: List[int],
+            bank_beholdning: float
     ):
         self.holdet = holdet
         self.api_football = api_football
         self.team_id_map = team_id_map
         self.events = events
         self.existing_player_ids = existing_player_ids
+        self.bank_beholdning = bank_beholdning
         self.odds = api_football.get_odds(
             bet_ids=list(set([event['bet_id'] for i, event in EVENTS.items()])),
             latest_fixture_time_utc=self.holdet.current_round_start_end_time[1]
@@ -142,6 +145,11 @@ class OptimizationInput:
             injury['player']['name'] for injury in round_injuries
         ))
 
+    def get_budget(self):
+        value_of_players = sum(player['current_value'] for player in self.players if player['player_id'] in self.existing_player_ids)
+        cash = self.bank_beholdning
+        return value_of_players + cash
+
 
 class Optimization:
     """Optimization class."""
@@ -237,7 +245,7 @@ class Optimization:
                 )
 
         # Add budget constraint
-        budget = 50000000
+        budget = self.input.get_budget()
         min_spend_portion = 0.95
         team_value = mip.xsum(x[i] * player['current_value'] for i, player in enumerate(self.input.players))
         self.model.add_constr(
@@ -252,7 +260,6 @@ class Optimization:
         # Define objective terms
         # TODO: add factors from stats (see football api players stats), e.g. minutes played
         transfer_cost_rate = 0.01
-        print(self.input.existing_player_ids)
         transfer_costs_shift_in = [
             -player['current_value'] * transfer_cost_rate   # Transfer costs to shift in a player
             if player['player_id'] not in self.input.existing_player_ids
