@@ -142,6 +142,13 @@ class OptimizationInput:
                     points_assist = self.holdet.get_event_points(278)
                     assists_per_match_exp_score = self.stats.get_stat_players(
                         'assists_per_90_overall').get(player_stats_name, 0) * points_assist
+                    # TODO: add score from team goals
+                    # Expected score from cards
+                    points_red = self.holdet.get_event_points(303)
+                    points_yellow = self.holdet.get_event_points(313)
+                    points_card_avg = (points_red + points_yellow) * 0.5
+                    cards_per_match_exp_score = self.stats.get_stat_players(
+                        'cards_per_90_overall').get(player_stats_name, 0) * points_card_avg
                     # Expected score from clean sheets
                     points_defender = self.holdet.get_event_points(280)
                     points_gk = self.holdet.get_event_points(285)
@@ -159,7 +166,8 @@ class OptimizationInput:
                             win_match_exp_score +
                             goals_per_match_exp_score +
                             clean_sheet_exp_score +
-                            assists_per_match_exp_score
+                            assists_per_match_exp_score +
+                            cards_per_match_exp_score
                     )
             #if 'anytime_goal_' in event_key:
             #    for player in player_scores:
