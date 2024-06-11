@@ -10,7 +10,7 @@ from enum import Enum
 from thefuzz import fuzz
 from typing import List
 
-from data import HoldetDk, ApiFootball, EVENTS
+from data import HoldetDk, ApiFootball, EVENTS, Stats
 
 
 class ProbabilitySource(Enum):
@@ -23,12 +23,18 @@ class OptimizationInput:
     """Combining HoldetDk and ApiFootball to get relevant input for optimization."""
 
     def __init__(
-            self, holdet: HoldetDk, api_football: ApiFootball, team_id_map: dict, events: dict,
+            self,
+            holdet: HoldetDk,
+            api_football: ApiFootball,
+            stats: Stats,
+            team_id_map: dict,
+            events: dict,
             existing_player_ids: List[int],
             bank_beholdning: float
     ):
         self.holdet = holdet
         self.api_football = api_football
+        self.stats = stats
         self.team_id_map = team_id_map
         self.events = events
         self.existing_player_ids = existing_player_ids
@@ -42,8 +48,6 @@ class OptimizationInput:
             latest_fixture_time_utc=self.holdet.current_round_start_end_time[1]
         )
         self.players = self._get_expected_player_scores()
-
-    # TODO: add method for clean sheet odd
 
     def _calc_expected_score_anytime_goal(self, player) -> float:
         """Calculate and return the expected score for a player for the event types anytime_goal_% (there is one for
@@ -120,11 +124,43 @@ class OptimizationInput:
     def _get_expected_player_scores(self):
         """Get list of players including expected score."""
 
+        player_prob_appear = self.stats.get_prob_appearance()
         player_scores = self.holdet.player_data
         for event_key, event in self.events.items():
             if event_key == "match_winner":
                 for player in player_scores:
-                    player["expected_score"] = self._calc_expected_score_match_winner(player)
+                    player_stats_name = self.name_lookup_holdet_to_stats(player['person_fullname'])
+                    # Expected score from team win
+                    win_match_exp_score = self._calc_expected_score_match_winner(player)
+                    # Expected score from goals
+                    pos_name = player["position_name_en"].lower()
+                    goals_per_match_exp_score = self.stats.get_stat_players(
+                        'goals_per_90_overall').get(player_stats_name, 0) * self.holdet.get_event_points(
+                        self.events[f'anytime_goal_{pos_name}']['holdet_event_id']
+                    )
+                    # Expected score from assists
+                    points_assist = self.holdet.get_event_points(278)
+                    assists_per_match_exp_score = self.stats.get_stat_players(
+                        'assists_per_90_overall').get(player_stats_name, 0) * points_assist
+                    # Expected score from clean sheets
+                    points_defender = self.holdet.get_event_points(280)
+                    points_gk = self.holdet.get_event_points(285)
+                    appearances = self.stats.get_stat_players('appearances_overall').get(player_stats_name, 0)
+                    clean_sheets = self.stats.get_stat_players('clean_sheets_overall').get(player_stats_name, 0)
+                    p_clean_sheet = clean_sheets / appearances if appearances != 0 else 0
+                    clean_sheet_exp_score = p_clean_sheet * (
+                        points_defender if pos_name == 'defender' else
+                        points_gk if pos_name == 'goalkeeper' else
+                        0
+                    )
+                    # Combined expected score multiplied by probability of appearance
+                    p_appear = player_prob_appear.get(player_stats_name, 0)
+                    player["expected_score"] = p_appear * (
+                            win_match_exp_score +
+                            goals_per_match_exp_score +
+                            clean_sheet_exp_score +
+                            assists_per_match_exp_score
+                    )
             #if 'anytime_goal_' in event_key:
             #    for player in player_scores:
             #        player["expected_score"] += self._calc_expected_score_anytime_goal(player)
@@ -149,6 +185,31 @@ class OptimizationInput:
         value_of_players = sum(player['current_value'] for player in self.players if player['player_id'] in self.existing_player_ids)
         cash = self.bank_beholdning
         return value_of_players + cash
+
+    def name_lookup_stats_to_holdet_id(self, name: str, fuzz_match_ratio: float = 80) -> int | None:
+        """Convert a player full name from stats files to HoldetDk identifier player_id. Based on fuzzy match."""
+
+        return next(
+            (
+                player['player_id']
+                for player in self.holdet.player_data
+                if fuzz.ratio(name, player['person_fullname']) > fuzz_match_ratio
+            ),
+            None
+        )
+
+    # TODO: make a sort of "fuzzy map" to map all of the IDs
+    def name_lookup_holdet_to_stats(self, holdet_player_id: str, fuzz_match_ratio: float = 80) -> str | None:
+        """Convert a HoldetDk player name to player full name from stats files. Based on fuzzy match."""
+
+        return next(
+            (
+                player_name
+                for player_name in self.stats.get_stat_players('full_name').values()
+                if fuzz.ratio(holdet_player_id, player_name) > fuzz_match_ratio
+            ),
+            None
+        )
 
 
 class Optimization:
@@ -229,7 +290,7 @@ class Optimization:
                 lin_expr=mip.xsum(team) <= 4
             )
 
-        # Add constraint to avoid injured players
+        # Add constraint to avoid injured or eliminated/non-active players
         injured_players = self.input.get_current_round_injured_players()
         injured_players_holdet_names = [
             player_holdet['person_fullname']
@@ -238,9 +299,26 @@ class Optimization:
             if fuzz.ratio(player_holdet['person_shortname'], player_api) > 80
         ]
         for i, player in enumerate(self.input.players):
-            if player['person_shortname'] in injured_players_holdet_names:
+            if player['is_eliminated'] or not player['is_active']:
+                self.model.add_constr(
+                    name=f"Avoid buying non-active or eliminated player {player['person_fullname']}.",
+                    lin_expr=x[i] == 0
+                )
+            elif player['person_shortname'] in injured_players_holdet_names:
                 self.model.add_constr(
                     name=f"Avoid buying injured player {player['person_fullname']}.",
+                    lin_expr=x[i] == 0
+                )
+        # Exclude players below a given qualifier appearance level (to avoid solver choosing strategy of half team
+        # with no appearance).
+        min_prob_appear = 0.80
+        player_prob_appear = self.input.stats.get_prob_appearance()
+        for i, player in enumerate(self.input.players):
+            player_stats_name = self.input.name_lookup_holdet_to_stats(player['person_fullname'])
+            p_appear = player_prob_appear.get(player_stats_name, 0)
+            if p_appear < min_prob_appear:
+                self.model.add_constr(
+                    name=f"Avoid buying player with low probability of appearance {player['person_fullname']}.",
                     lin_expr=x[i] == 0
                 )
 
@@ -258,7 +336,6 @@ class Optimization:
         )
 
         # Define objective terms
-        # TODO: add factors from stats (see football api players stats), e.g. minutes played
         transfer_cost_rate = 0.01
         transfer_costs_shift_in = [
             -player['current_value'] * transfer_cost_rate   # Transfer costs to shift in a player

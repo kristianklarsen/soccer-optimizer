@@ -5,10 +5,10 @@ from flask_caching import Cache
 from flask_bootstrap import Bootstrap5
 from flask_wtf import FlaskForm, CSRFProtect
 from wtforms import SubmitField, SelectMultipleField, FloatField
-from wtforms.validators import DataRequired
+from wtforms.validators import DataRequired, ValidationError
 from wtforms.widgets import html_params
 from markupsafe import Markup
-from data import ApiFootball, HoldetDk, TEAM_ID_MAP, EVENTS
+from data import ApiFootball, HoldetDk, Stats, TEAM_ID_MAP, EVENTS
 from optimization import Optimization, OptimizationInput
 
 app = Flask(__name__)
@@ -61,11 +61,22 @@ def get_player_names():
 def get_data(existing_player_ids: list, bank_beholdning: float):
     odds_data = get_api_football_data()
     holdet_data = get_holdet_data()
+    stats = Stats()
     optimization_input = OptimizationInput(
-        holdet_data, odds_data, existing_player_ids=existing_player_ids, bank_beholdning=bank_beholdning,
-        team_id_map=TEAM_ID_MAP, events=EVENTS
+        holdet=holdet_data,
+        api_football=odds_data,
+        stats=stats,
+        existing_player_ids=existing_player_ids,
+        bank_beholdning=bank_beholdning,
+        team_id_map=TEAM_ID_MAP,
+        events=EVENTS
     )
     return optimization_input
+
+
+def validate_selection_count(form, field):
+    if not (len(field.data) == 0 or len(field.data) == 11):
+        raise ValidationError('You must select either 0 or 11 players.')
 
 
 class TeamForm(FlaskForm):
@@ -73,8 +84,8 @@ class TeamForm(FlaskForm):
         super(TeamForm, self).__init__(*args, **kwargs)
         self.options.choices = choices
 
-    options = MultiCheckboxField('Select existing team')
-    bank_beholdning = FloatField('Bank beholdning', validators=[DataRequired()])
+    options = MultiCheckboxField('Select existing team', validators=[validate_selection_count])
+    bank_beholdning = FloatField('Cash holding', validators=[DataRequired()])
     submit = SubmitField('Optimize')
 
 

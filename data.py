@@ -150,7 +150,10 @@ class HoldetDk:
             players[player['id']] = {'player_id': player['id'],
                                      'person_id': player['person']['id'],
                                      'team_id': player['team']['id'],
-                                     'position_id': player['position']['id']}
+                                     'position_id': player['position']['id'],
+                                     'is_eliminated': player['eliminated'],
+                                     'is_active': player['active']
+                                     }
         ruleset_data = self.ruleset_data
         positions = {}
         for position in ruleset_data['positions']:
@@ -386,3 +389,47 @@ class ApiFootball:
         return {
             f: self.get_fixture_prediction_request(f) for f in fixtures_in_period
         }
+
+
+class Stats:
+    """Stats based on qualifiers."""
+
+    def __init__(self):
+        self.data_players = self.load_data_players()
+        self.data_teams = self.load_data_teams()
+
+    def get_stat_players(self, column_name: str) -> dict:
+        """Return dict of player_full_name: statistic."""
+
+        return dict(zip(self.data_players.get('full_name'), self.data_players.get(column_name)))
+
+    def get_prob_appearance(self) -> dict:
+        """Return the probability of appearance based on minutes_per_match / 90."""
+
+        min_per_match = self.get_stat_players('min_per_match')
+        return {i: m / 90 for i, m in min_per_match.items()}
+
+    @staticmethod
+    def load_data_players():
+        return pd.read_csv('datasets/footystats_euro2024_qualifiers_players.csv')
+
+    @staticmethod
+    def load_data_teams():
+        return pd.read_csv('datasets/footystats_euro2024_qualifiers_teams.csv')
+
+#
+# class Stats(ApiFootball):
+#     """Stats based on qualifiers."""
+#
+#     def __init__(self, api_key: str, league_id: int = 960, season: int = 2023, bookmaker: str = "Bet365"):
+#         super().__init__(api_key, league_id, season, bookmaker)
+#
+#     def get_player_appearance_rate(self, player_id: int) -> float:
+#         """Return the number of matches that the player has played divided by the number of matches the team has played
+#         in the qualifiers."""
+
+
+
+    # get player average appearances
+    # get player average goals per match
+

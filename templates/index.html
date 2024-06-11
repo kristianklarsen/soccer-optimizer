@@ -5,27 +5,53 @@
 Home
 {% endblock %}
 
-
 {% block content %}
-
-
 <div class="container">
   <div class="row">
     <div class="col-md-10 col-lg-8 mx-lg-auto mx-md-auto">
-
-      <h1 class="pt-5 pb-2">Holdet Optimizer.</h1>
-
+      <h1 class="pt-5 pb-2">Holdet Optimizer</h1>
       <p class="lead">Calculate optimal team for the EURO 2024 fantasy game at <a href="https://holdet.dk/">holdet.dk</a> </p>
 
-      {{ render_form(team_form) }}
+      <form method="POST">
+        {{ team_form.hidden_tag() }}
+        <div class="form-group">
+          {{ team_form.bank_beholdning.label(class="form-label") }}
+          {{ team_form.bank_beholdning(class="form-control") }}
+          {% if team_form.bank_beholdning.errors %}
+            <div class="alert alert-danger">
+              {% for error in team_form.bank_beholdning.errors %}
+                <p>{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+        <br>
+        <div class="form-group">
+          {{ team_form.options.label(class="form-label") }}
+          {% if team_form.options.errors %}
+            <div class="alert alert-danger">
+              {% for error in team_form.options.errors %}
+                <p>{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <div style="max-height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px;">
+            {{ team_form.options }}
+          </div>
+        </div>
+        <br>
+        <div class="form-group">
+          {{ team_form.submit(class="btn btn-primary") }}
+        </div>
+        <br>
+      </form>
 
       {% if optimal_team_table %}
         <h2>Optimal Team</h2>
         {{ optimal_team_table | safe }}  <!-- Render the output HTML safely -->
       {% endif %}
-
     </div>
   </div>
 </div>
-
+<br>
 {% endblock %}

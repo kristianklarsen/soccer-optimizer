@@ -1,3 +1,9 @@
 body {
 font-family: 'Courier New', Courier, monospace;
 }
+.footer-right {
+  position: fixed;
+  right: 10px;
+  bottom: 10px;
+  text-align: right;
+}
