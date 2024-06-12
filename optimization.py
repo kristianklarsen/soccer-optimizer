@@ -1,11 +1,5 @@
 import mip
 import datetime as dt
-import matplotlib as mpl
-import matplotlib.patheffects as path_effects
-import matplotlib.pyplot as plt
-import pandas as pd
-from PIL import Image
-from mplsoccer import VerticalPitch, Sbopen, FontManager, inset_image
 from enum import Enum
 from thefuzz import fuzz
 from typing import List

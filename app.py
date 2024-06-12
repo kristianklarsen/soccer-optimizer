@@ -1,6 +1,6 @@
 import pandas as pd
 import secrets
-from flask import Flask, request, render_template
+from flask import Flask, render_template
 from flask_caching import Cache
 from flask_bootstrap import Bootstrap5
 from flask_wtf import FlaskForm, CSRFProtect
@@ -119,4 +119,4 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0')
+    app.run(host="127.0.0.1", port=8080)
