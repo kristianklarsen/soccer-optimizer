@@ -24,7 +24,12 @@ class OptimizationInput:
             team_id_map: dict,
             events: dict,
             existing_player_ids: List[int],
-            bank_beholdning: float
+            bank_beholdning: float,
+            weight_team_win: float,
+            weight_player_goals: float,
+            weight_player_assists: float,
+            weight_player_cards: float,
+            weight_player_clean_sheets: float
     ):
         self.holdet = holdet
         self.api_football = api_football
@@ -33,6 +38,11 @@ class OptimizationInput:
         self.events = events
         self.existing_player_ids = existing_player_ids
         self.bank_beholdning = bank_beholdning
+        self.weight_team_win = weight_team_win
+        self.weight_player_goals = weight_player_goals
+        self.weight_player_assists = weight_player_assists
+        self.weight_player_cards = weight_player_cards
+        self.weight_player_clean_sheets = weight_player_clean_sheets
         self.odds = api_football.get_odds(
             bet_ids=list(set([event['bet_id'] for i, event in EVENTS.items()])),
             latest_fixture_time_utc=self.holdet.current_round_start_end_time[1]
@@ -125,25 +135,25 @@ class OptimizationInput:
                 for player in player_scores:
                     player_stats_name = self.name_lookup_holdet_to_stats(player['person_fullname'])
                     # Expected score from team win
-                    win_match_exp_score = self._calc_expected_score_match_winner(player)
-                    # Expected score from goals
+                    win_match_exp_score = self._calc_expected_score_match_winner(player) * self.weight_team_win
+                    # Expected score from player goals
                     pos_name = player["position_name_en"].lower()
                     goals_per_match_exp_score = self.stats.get_stat_players(
                         'goals_per_90_overall').get(player_stats_name, 0) * self.holdet.get_event_points(
                         self.events[f'anytime_goal_{pos_name}']['holdet_event_id']
-                    )
-                    # Expected score from assists
+                    ) * self.weight_player_goals
+                    # Expected score from player assists
                     points_assist = self.holdet.get_event_points(278)
                     assists_per_match_exp_score = self.stats.get_stat_players(
-                        'assists_per_90_overall').get(player_stats_name, 0) * points_assist
+                        'assists_per_90_overall').get(player_stats_name, 0) * points_assist * self.weight_player_assists
                     # TODO: add score from team goals
-                    # Expected score from cards
+                    # Expected score from player cards
                     points_red = self.holdet.get_event_points(303)
                     points_yellow = self.holdet.get_event_points(313)
                     points_card_avg = (points_red + points_yellow) * 0.5
                     cards_per_match_exp_score = self.stats.get_stat_players(
-                        'cards_per_90_overall').get(player_stats_name, 0) * points_card_avg
-                    # Expected score from clean sheets
+                        'cards_per_90_overall').get(player_stats_name, 0) * points_card_avg * self.weight_player_cards
+                    # Expected score from player clean sheets
                     points_defender = self.holdet.get_event_points(280)
                     points_gk = self.holdet.get_event_points(285)
                     appearances = self.stats.get_stat_players('appearances_overall').get(player_stats_name, 0)
@@ -153,7 +163,7 @@ class OptimizationInput:
                         points_defender if pos_name == 'defender' else
                         points_gk if pos_name == 'goalkeeper' else
                         0
-                    )
+                    ) * self.weight_player_clean_sheets
                     # Combined expected score multiplied by probability of appearance
                     p_appear = player_prob_appear.get(player_stats_name, 0)
                     player["expected_score"] = p_appear * (
@@ -345,18 +355,12 @@ class Optimization:
             else 0
             for i, player in enumerate(self.input.players)
         ]
-        transfer_costs_shift_out = [
-            player['current_value'] * transfer_cost_rate    # Transfer cost lost if shifting out a player
-            if player['player_id'] in self.input.existing_player_ids
-            else 0
-            for i, player in enumerate(self.input.players)
-        ]
         # Add objective
         # Maximize sum of expected score of chosen players.
         # Add transfer costs.
         self.model.objective = mip.maximize(
             mip.xsum(
-                x[i] * (player["expected_score"] + transfer_costs_shift_in[i] + transfer_costs_shift_out[i])
+                x[i] * (player["expected_score"] + transfer_costs_shift_in[i])
                 for i, player in enumerate(self.input.players)
             )
         )

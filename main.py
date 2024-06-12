@@ -5,7 +5,7 @@ from flask_caching import Cache
 from flask_bootstrap import Bootstrap5
 from flask_wtf import FlaskForm, CSRFProtect
 from wtforms import SubmitField, SelectMultipleField, FloatField
-from wtforms.validators import DataRequired, ValidationError
+from wtforms.validators import DataRequired, ValidationError, NumberRange
 from wtforms.widgets import html_params
 from markupsafe import Markup
 from data import ApiFootball, HoldetDk, Stats, TEAM_ID_MAP, EVENTS
@@ -58,7 +58,15 @@ def get_player_names():
     return [(player['player_id'], player['person_fullname']) for player in data.player_data]
 
 
-def get_data(existing_player_ids: list, bank_beholdning: float):
+def get_data(
+        existing_player_ids: list,
+        bank_beholdning: float,
+        weight_team_win: float,
+        weight_player_goals: float,
+        weight_player_assists: float,
+        weight_player_cards: float,
+        weight_player_clean_sheets: float
+):
     odds_data = get_api_football_data()
     holdet_data = get_holdet_data()
     stats = Stats()
@@ -68,6 +76,11 @@ def get_data(existing_player_ids: list, bank_beholdning: float):
         stats=stats,
         existing_player_ids=existing_player_ids,
         bank_beholdning=bank_beholdning,
+        weight_team_win=weight_team_win,
+        weight_player_goals=weight_player_goals,
+        weight_player_assists=weight_player_assists,
+        weight_player_cards=weight_player_cards,
+        weight_player_clean_sheets=weight_player_clean_sheets,
         team_id_map=TEAM_ID_MAP,
         events=EVENTS
     )
@@ -84,13 +97,36 @@ class TeamForm(FlaskForm):
         super(TeamForm, self).__init__(*args, **kwargs)
         self.options.choices = choices
 
-    options = MultiCheckboxField('Select existing team', validators=[validate_selection_count])
+    options = MultiCheckboxField('Select existing team:', validators=[validate_selection_count])
     bank_beholdning = FloatField('Cash holding', validators=[DataRequired()])
+
+    weight_team_win = FloatField('Team win', default=1, validators=[DataRequired(), NumberRange(min=0, max=1)])
+    weight_player_goals = FloatField('Player goals', default=1, validators=[DataRequired(), NumberRange(min=0, max=1)])
+    weight_player_assists = FloatField('Player assists', default=1, validators=[DataRequired(), NumberRange(min=0, max=1)])
+    weight_player_cards = FloatField('Player cards', default=1, validators=[DataRequired(), NumberRange(min=0, max=1)])
+    weight_player_clean_sheets = FloatField('Player clean sheets', default=1, validators=[DataRequired(), NumberRange(min=0, max=1)])
+
     submit = SubmitField('Optimize')
 
 
-def get_optimal_team_df(existing_player_ids: list, bank_beholdning: float):
-    optimization_input = get_data(existing_player_ids, bank_beholdning)
+def get_optimal_team_df(
+        existing_player_ids: list,
+        bank_beholdning: float,
+        weight_team_win: float,
+        weight_player_goals: float,
+        weight_player_assists: float,
+        weight_player_cards: float,
+        weight_player_clean_sheets: float
+):
+    optimization_input = get_data(
+        existing_player_ids,
+        bank_beholdning,
+        weight_team_win,
+        weight_player_goals,
+        weight_player_assists,
+        weight_player_cards,
+        weight_player_clean_sheets
+    )
     optimization = Optimization(optimization_input)
     optimization.build_model()
     optimization.run()
@@ -109,10 +145,16 @@ def index():
     team_form = TeamForm(choices=choices)
 
     if team_form.validate_on_submit():
-        existing_player_ids = team_form.options.data
-        existing_player_ids = [int(p_id) for p_id in existing_player_ids]
-        bank_beholdning = team_form.bank_beholdning.data
-        optimal_team_df = get_optimal_team_df(existing_player_ids, bank_beholdning)
+        # Calc optimal team and render
+        optimal_team_df = get_optimal_team_df(
+            existing_player_ids=[int(p_id) for p_id in team_form.options.data],
+            bank_beholdning=team_form.bank_beholdning.data,
+            weight_team_win=team_form.weight_team_win.data,
+            weight_player_goals=team_form.weight_player_goals.data,
+            weight_player_assists=team_form.weight_player_assists.data,
+            weight_player_cards=team_form.weight_player_cards.data,
+            weight_player_clean_sheets=team_form.weight_player_clean_sheets.data
+        )
         optimal_team_table = optimal_team_df.to_html(classes='table table-striped', escape=False, index=False)
 
     return render_template('index.html', team_form=team_form, optimal_team_table=optimal_team_table)

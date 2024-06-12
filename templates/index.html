@@ -26,6 +26,7 @@ Home
           {% endif %}
         </div>
         <br>
+
         <div class="form-group">
           {{ team_form.options.label(class="form-label") }}
           {% if team_form.options.errors %}
@@ -40,10 +41,77 @@ Home
           </div>
         </div>
         <br>
+        <br>
+
+        <p class="lead">Optimization factor weights (input values between 0 and 1):</p>
+
+        <div class="form-group">
+          {{ team_form.weight_team_win.label(class="form-label") }}
+          {{ team_form.weight_team_win(class="form-control") }}
+          {% if team_form.weight_team_win.errors %}
+            <div class="alert alert-danger">
+              {% for error in team_form.weight_team_win.errors %}
+                <p>{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+        <br>
+        <div class="form-group">
+          {{ team_form.weight_player_goals.label(class="form-label") }}
+          {{ team_form.weight_player_goals(class="form-control") }}
+          {% if team_form.weight_player_goals.errors %}
+            <div class="alert alert-danger">
+              {% for error in team_form.weight_player_goals.errors %}
+                <p>{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+        <br>
+        <div class="form-group">
+          {{ team_form.weight_player_assists.label(class="form-label") }}
+          {{ team_form.weight_player_assists(class="form-control") }}
+          {% if team_form.weight_player_assists.errors %}
+            <div class="alert alert-danger">
+              {% for error in team_form.weight_player_assists.errors %}
+                <p>{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+        <br>
+        <div class="form-group">
+          {{ team_form.weight_player_cards.label(class="form-label") }}
+          {{ team_form.weight_player_cards(class="form-control") }}
+          {% if team_form.weight_player_cards.errors %}
+            <div class="alert alert-danger">
+              {% for error in team_form.weight_player_cards.errors %}
+                <p>{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+        <br>
+        <div class="form-group">
+          {{ team_form.weight_player_clean_sheets.label(class="form-label") }}
+          {{ team_form.weight_player_clean_sheets(class="form-control") }}
+          {% if team_form.weight_player_clean_sheets.errors %}
+            <div class="alert alert-danger">
+              {% for error in team_form.weight_player_clean_sheets.errors %}
+                <p>{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+        <br>
+        <br>
+
         <div class="form-group">
           {{ team_form.submit(class="btn btn-primary") }}
         </div>
         <br>
+
       </form>
 
       {% if optimal_team_table %}
