@@ -135,7 +135,8 @@ class HoldetDk:
         teams = {}
         for team in tournament_data['teams']:
             teams[team['id']] = {'team_id': team['id'],
-                                 'team_name': team['name']}
+                                 'team_name': team['name'],
+                                 'eliminated': team['eliminated']}
         persons = {}
         for person in tournament_data['persons']:
             persons[person['id']] = {'person_id': person['id'],
@@ -151,7 +152,7 @@ class HoldetDk:
                                      'person_id': player['person']['id'],
                                      'team_id': player['team']['id'],
                                      'position_id': player['position']['id'],
-                                     'is_eliminated': player['eliminated'],
+                                     'is_eliminated': player['eliminated'] or teams[player['team']['id']]['eliminated'],
                                      'is_active': player['active']
                                      }
         ruleset_data = self.ruleset_data
